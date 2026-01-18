@@ -272,12 +272,9 @@ class VisionService:
         # Fallback: just print (TTS not available)
         print(f"[TTS NOT AVAILABLE] Would say: {text}")
 
-    def _speak_object(self, object_name: str, description: str = ""):
-        """Speak the identified object with description."""
-        if description and description != object_name:
-            text = f"I see {description}"
-        else:
-            text = f"I see a {object_name}"
+    def _speak_object(self, object_name: str):
+        """Speak the identified object name."""
+        text = f"I see a {object_name}"
         self._speak_text(text)
 
     def _speak_text(self, text: str):
@@ -476,18 +473,18 @@ Be specific and concise. Focus on the most prominent object in the frame."""
             # Object identification
             if self.identifyObjectThisFrame:
                 print("\n" + "="*60)
-                print("[Object Detection] Looking at what's in front of me...")
+                print("[Object Detection] Identifying main object...")
                 print("="*60)
                 object_result = self.identify_object(frame)
                 self.identifyObjectThisFrame = False
                 with self._object_lock:
                     self.latest_object_data = object_result
-                print(f"\n[DETECTED OBJECT]: {object_result.object_name}")
+                print(f"\n[OBJECT]: {object_result.object_name}")
                 print(f"[DESCRIPTION]: {object_result.description}")
                 print("="*60 + "\n")
                 
                 # Speak what was detected
-                self._speak_object(object_result.object_name, object_result.description)
+                self._speak_object(object_result.object_name)
 
             face_data = None
             hand_data = None

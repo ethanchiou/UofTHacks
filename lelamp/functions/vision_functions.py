@@ -171,8 +171,7 @@ class VisionFunctions:
         Identify the main object in the current camera frame.
         Use this when the user asks "what is this?", "what am I holding?", 
         "what do you see?", "what's in front of you?", or asks you to identify something.
-        Do NOT use this for math problems - use solve_this_frame instead.
         """
-        print(f"[Vision] Looking at what's in front of me...")
+        print(f"[Vision] Identifying object in frame...")
         self.vision_service.identifyObjectThisFrame = True
-        return "Looking at what's in front of me..."
+        return "Identifying object..."
