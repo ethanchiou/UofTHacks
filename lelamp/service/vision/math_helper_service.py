@@ -1,16 +1,16 @@
 """
-MathHelperService - Captures frames and solves math problems using Gemini Vision API.
+MathHelperService - Captures frames and solves math problems using OpenAI Vision API.
 
 When the user says "help" (or variations), this service:
 1. Captures the current camera frame
-2. Sends it to Google Gemini Vision API
+2. Sends it to OpenAI GPT-4 Vision API
 3. Extracts and solves the math problem
 4. Speaks the answer using TTS
 
 Usage:
     from lelamp.service.vision.math_helper_service import MathHelperService
     
-    math_helper = MathHelperService(api_key="your-gemini-api-key")
+    math_helper = MathHelperService(api_key="your-openai-api-key")
     math_helper.start()
     
     # When "help" is detected in transcript:
@@ -36,16 +36,16 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("MathHelperService")
 logger.setLevel(logging.DEBUG)
 
-# Try to import Google Generative AI
-GENAI_AVAILABLE = False
-genai = None
+# Try to import OpenAI
+OPENAI_AVAILABLE = False
+openai_client = None
 try:
-    import google.generativeai as genai
-    GENAI_AVAILABLE = True
-    logger.info("google-generativeai imported successfully")
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+    logger.info("OpenAI imported successfully")
 except ImportError as e:
-    logger.error(f"google-generativeai not installed: {e}")
-    logger.error("Run: pip install google-generativeai")
+    logger.error(f"OpenAI not installed: {e}")
+    logger.error("Run: pip install openai")
 
 # Try to import PIL
 PIL_AVAILABLE = False
@@ -71,14 +71,14 @@ class MathResult:
 
 class MathHelperService:
     """
-    Service that loads test.jpg and solves math problems using Gemini Vision API.
+    Service that loads test.jpg and solves math problems using OpenAI Vision API.
     
     Listens for "help" keyword variations in transcripts and automatically processes 
     the math problem from test.jpg file.
     """
     
-    # Default Gemini API key
-    DEFAULT_API_KEY = "AIzaSyBCTkIxNDvXV-V1CPjPai0kxXNTTOlmImE"
+    # Default OpenAI API key (set via environment variable OPENAI_API_KEY or pass directly)
+    DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "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")
     
     # Path to test image (relative to UofTHacks directory)
     TEST_IMAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "test.jpg")
@@ -159,7 +159,7 @@ class MathHelperService:
         Initialize the Math Helper Service.
         
         Args:
-            api_key: Google Gemini API key (uses default if not provided)
+            api_key: OpenAI API key (uses OPENAI_API_KEY env var if not provided)
             trigger_phrases: List of phrases that trigger math help
             default_answer: Default answer if processing fails (default: 4)
             cooldown_seconds: Minimum time between triggers (default: 2.0)
@@ -184,9 +184,9 @@ class MathHelperService:
         self.last_error: Optional[str] = None
         self.last_frame: Optional[np.ndarray] = None
         
-        # Initialize Gemini
-        self.model = None
-        self._init_gemini()
+        # Initialize OpenAI client
+        self.client = None
+        self._init_openai()
 
     def solve(self, frame: np.ndarray) -> MathResult:
         """
@@ -198,17 +198,17 @@ class MathHelperService:
         Returns:
             MathResult with the answer
         """
-        if not GENAI_AVAILABLE or not PIL_AVAILABLE or self.model is None:
-            self.last_error = "Gemini not available"
+        if not OPENAI_AVAILABLE or self.client is None:
+            self.last_error = "OpenAI not available"
             return MathResult(
-                answer=self.default_answer, problem_text="", explanation="Gemini not available",
+                answer=self.default_answer, problem_text="", explanation="OpenAI not available",
                 confidence=0.0, timestamp=time.time(), raw_response=""
             )
         
         try:
-            # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(frame_rgb)
+            # Convert frame to base64
+            _, buffer = cv2.imencode('.jpg', frame)
+            base64_image = base64.b64encode(buffer).decode('utf-8')
             
             # Create the prompt
             prompt = """Look at this image. Find and solve the math problem shown.
@@ -216,21 +216,35 @@ IMPORTANT: Return ONLY the numerical answer as a single integer.
 If you see "2 + 2 = ?", respond with just: 4
 Look at the image and give me ONLY the integer answer:"""
 
-            # Call Gemini API (synchronous)
-            response = self.model.generate_content([prompt, image])
+            # Call OpenAI API (synchronous)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=100
+            )
             
-            if response is None:
-                self.last_error = "Gemini returned None"
+            if response is None or not response.choices:
+                self.last_error = "OpenAI returned empty response"
                 return MathResult(
                     answer=self.default_answer, problem_text="", explanation="No response",
                     confidence=0.0, timestamp=time.time(), raw_response=""
                 )
             
             # Get response text
-            try:
-                response_text = response.text.strip()
-            except Exception:
-                response_text = str(response)
+            response_text = response.choices[0].message.content.strip()
             
             # Extract integer from response
             answer = self._extract_integer(response_text)
@@ -249,35 +263,35 @@ Look at the image and give me ONLY the integer answer:"""
             return result
             
         except Exception as e:
-            logger.error(f"Gemini error: {e}")
+            logger.error(f"OpenAI error: {e}")
             self.last_error = str(e)
             return MathResult(
                 answer=self.default_answer, problem_text="", explanation=str(e),
                 confidence=0.0, timestamp=time.time(), raw_response=""
             )
     
-    def _init_gemini(self):
-        """Initialize the Gemini API client."""
-        if not GENAI_AVAILABLE:
+    def _init_openai(self):
+        """Initialize the OpenAI API client."""
+        if not OPENAI_AVAILABLE:
             logger.error("=" * 50)
-            logger.error("GEMINI API NOT AVAILABLE")
-            logger.error("Install with: pip install google-generativeai")
+            logger.error("OPENAI API NOT AVAILABLE")
+            logger.error("Install with: pip install openai")
             logger.error("=" * 50)
             return
         
+        if not self.api_key:
+            logger.error("No OpenAI API key provided. Set OPENAI_API_KEY environment variable.")
+            return
+        
         try:
-            logger.info(f"Configuring Gemini with API key: {self.api_key[:10]}...{self.api_key[-4:]}")
-            genai.configure(api_key=self.api_key)
-            
-            # Use gemini-2.0-flash-lite for better rate limits on free tier
-            self.model = genai.GenerativeModel('gemini-2.0-flash-lite')
-            logger.info("Gemini model initialized: gemini-2.0-flash-lite")
-            logger.info("Skipping API test to conserve quota - will test on first actual request")
+            logger.info(f"Configuring OpenAI with API key: {self.api_key[:10]}...{self.api_key[-4:]}")
+            self.client = OpenAI(api_key=self.api_key)
+            logger.info("OpenAI client initialized (using gpt-4o-mini for vision)")
             
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini: {e}")
+            logger.error(f"Failed to initialize OpenAI: {e}")
             logger.error(traceback.format_exc())
-            self.model = None
+            self.client = None
     
     def start(self):
         """Start the math helper service."""
@@ -285,7 +299,7 @@ Look at the image and give me ONLY the integer answer:"""
         logger.info("=" * 50)
         logger.info("MathHelperService STARTED")
         logger.info(f"Trigger phrases: {len(self.trigger_phrases)} configured")
-        logger.info(f"Gemini available: {self.model is not None}")
+        logger.info(f"OpenAI available: {self.client is not None}")
         logger.info("=" * 50)
     
     def stop(self):
@@ -377,7 +391,7 @@ Look at the image and give me ONLY the integer answer:"""
     
     async def analyze_math_problem(self, frame: np.ndarray) -> MathResult:
         """
-        Send frame to Gemini API and extract math problem answer.
+        Send frame to OpenAI API and extract math problem answer (async version).
         
         Args:
             frame: The camera frame containing the math problem
@@ -385,17 +399,17 @@ Look at the image and give me ONLY the integer answer:"""
         Returns:
             MathResult with the answer
         """
-        if not GENAI_AVAILABLE or not PIL_AVAILABLE or self.model is None:
-            self.last_error = "Gemini not available"
+        if not OPENAI_AVAILABLE or self.client is None:
+            self.last_error = "OpenAI not available"
             return MathResult(
-                answer=self.default_answer, problem_text="", explanation="Gemini not available",
+                answer=self.default_answer, problem_text="", explanation="OpenAI not available",
                 confidence=0.0, timestamp=time.time(), raw_response=""
             )
         
         try:
-            # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(frame_rgb)
+            # Convert frame to base64
+            _, buffer = cv2.imencode('.jpg', frame)
+            base64_image = base64.b64encode(buffer).decode('utf-8')
             
             # Create the prompt
             prompt = """Look at this image. Find and solve the math problem shown.
@@ -403,24 +417,36 @@ IMPORTANT: Return ONLY the numerical answer as a single integer.
 If you see "2 + 2 = ?", respond with just: 4
 Look at the image and give me ONLY the integer answer:"""
 
-            # Call Gemini API
+            # Call OpenAI API (async via thread)
             response = await asyncio.to_thread(
-                self.model.generate_content,
-                [prompt, image]
+                self.client.chat.completions.create,
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=100
             )
             
-            if response is None:
-                self.last_error = "Gemini returned None"
+            if response is None or not response.choices:
+                self.last_error = "OpenAI returned empty response"
                 return MathResult(
                     answer=self.default_answer, problem_text="", explanation="No response",
                     confidence=0.0, timestamp=time.time(), raw_response=""
                 )
             
             # Get response text
-            try:
-                response_text = response.text.strip()
-            except Exception:
-                response_text = str(response)
+            response_text = response.choices[0].message.content.strip()
             
             # Extract integer from response
             answer = self._extract_integer(response_text)
@@ -439,7 +465,7 @@ Look at the image and give me ONLY the integer answer:"""
             return result
             
         except Exception as e:
-            logger.error(f"Gemini error: {e}")
+            logger.error(f"OpenAI error: {e}")
             self.last_error = str(e)
             return MathResult(
                 answer=self.default_answer, problem_text="", explanation=str(e),
@@ -488,7 +514,7 @@ Look at the image and give me ONLY the integer answer:"""
         """
         Main method to process a math help request.
         
-        Loads test.jpg, analyzes with Gemini, outputs answer as:
+        Loads test.jpg, analyzes with OpenAI, outputs answer as:
         1. Text transcript (printed and logged)
         2. Audio through speakers
         
@@ -513,7 +539,7 @@ Look at the image and give me ONLY the integer answer:"""
                 logger.error("Could not load test.jpg")
                 transcript = f"The answer is {self.default_answer}"
             else:
-                # Analyze with Gemini
+                # Analyze with OpenAI
                 result = await self.analyze_math_problem(frame)
                 self.latest_result = result
                 answer = result.answer
@@ -688,16 +714,16 @@ async def run_full_test():
     """
     print("\n" + "=" * 70)
     print("   MATH HELPER SERVICE - COMPREHENSIVE TEST")
-    print("   Using test.jpg for image analysis")
+    print("   Using test.jpg for image analysis (OpenAI GPT-4 Vision)")
     print("=" * 70)
     
     # Test 1: Check dependencies
     print("\n[TEST 1] Checking dependencies...")
-    print(f"  - google-generativeai: {'✓ INSTALLED' if GENAI_AVAILABLE else '✗ NOT INSTALLED'}")
+    print(f"  - openai: {'✓ INSTALLED' if OPENAI_AVAILABLE else '✗ NOT INSTALLED'}")
     print(f"  - PIL/Pillow: {'✓ INSTALLED' if PIL_AVAILABLE else '✗ NOT INSTALLED'}")
     
-    if not GENAI_AVAILABLE:
-        print("\n  ❌ ERROR: Install google-generativeai with: pip install google-generativeai")
+    if not OPENAI_AVAILABLE:
+        print("\n  ❌ ERROR: Install openai with: pip install openai")
         return
     
     if not PIL_AVAILABLE:
@@ -711,20 +737,25 @@ async def run_full_test():
     service = MathHelperService()
     service.start()
     
-    if service.model is None:
-        print("  ❌ ERROR: Gemini model failed to initialize")
+    if service.client is None:
+        print("  ❌ ERROR: OpenAI client failed to initialize")
         print(f"  Last error: {service.last_error}")
+        print("  Make sure OPENAI_API_KEY environment variable is set")
         return
     
     print("  ✓ PASS: Service initialized successfully")
     print(f"  Test image path: {service.TEST_IMAGE_PATH}")
     
-    # Test 3: Test Gemini API with text-only request
-    print("\n[TEST 3] Testing Gemini API (text-only)...")
+    # Test 3: Test OpenAI API with text-only request
+    print("\n[TEST 3] Testing OpenAI API (text-only)...")
     try:
-        response = service.model.generate_content("What is 2 + 2? Reply with just the number.")
-        print(f"  Response: '{response.text.strip()}'")
-        print("  ✓ PASS: Gemini API responding")
+        response = service.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "What is 2 + 2? Reply with just the number."}],
+            max_tokens=10
+        )
+        print(f"  Response: '{response.choices[0].message.content.strip()}'")
+        print("  ✓ PASS: OpenAI API responding")
     except Exception as e:
         print(f"  ❌ ERROR: {e}")
         return
@@ -770,20 +801,20 @@ async def run_full_test():
     cv2.imwrite(debug_path, frame)
     print(f"  Saved copy to: {debug_path}")
     
-    # Test 6: Test Gemini with test.jpg
-    print("\n[TEST 6] Testing Gemini API with test.jpg...")
-    print("  Sending image to Gemini...")
+    # Test 6: Test OpenAI with test.jpg
+    print("\n[TEST 6] Testing OpenAI Vision API with test.jpg...")
+    print("  Sending image to OpenAI...")
     result = await service.analyze_math_problem(frame)
     
-    print(f"\n  📊 GEMINI RESPONSE:")
+    print(f"\n  📊 OPENAI RESPONSE:")
     print(f"  Raw response: '{result.raw_response}'")
     print(f"  Extracted answer: {result.answer}")
     print(f"  Confidence: {result.confidence}")
     
     if result.raw_response:
-        print("  ✓ PASS: Gemini processed image and returned response")
+        print("  ✓ PASS: OpenAI processed image and returned response")
     else:
-        print("  ❌ WARNING: No response from Gemini")
+        print("  ❌ WARNING: No response from OpenAI")
     
     # Test 7: Full pipeline with TEXT + AUDIO output
     print("\n[TEST 7] Testing full pipeline (TEXT + AUDIO)...")
