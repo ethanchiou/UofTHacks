@@ -52,12 +52,24 @@ class HandData:
     landmarks: List[tuple] = None  # List of (x, y) normalized
 
 
+@dataclass
+class ObjectData:
+    """Object detection data"""
+    detected: bool
+    object_name: str      # Main object identified (e.g., "laptop", "cup", "book")
+    description: str      # Brief description of the scene
+    confidence: float     # Confidence score 0.0 to 1.0
+    timestamp: float
+    raw_response: str = ""  # Full AI response
+
+
 class VisionService:
     """
     Unified Vision Service
     - Face detection (MediaPipe FaceMesh with Haar fallback)
     - Hand tracking & Gesture recognition
     - Head pose estimation
+    - Object identification (using OpenAI Vision)
     - Motor tracking control
     - LiveKit image publishing
     """
@@ -149,6 +161,11 @@ class VisionService:
         self.math_helper = MathHelperService()
         self.solveThisFrame = False
         self.math_helper.start()
+        
+        # Object identification
+        self.identifyObjectThisFrame = False
+        self.latest_object_data: Optional[ObjectData] = None
+        self._object_lock = threading.Lock()
 
     def start(self):
         """Start vision service"""
@@ -255,6 +272,151 @@ class VisionService:
         # Fallback: just print (TTS not available)
         print(f"[TTS NOT AVAILABLE] Would say: {text}")
 
+    def _speak_object(self, object_name: str):
+        """Speak the identified object name."""
+        text = f"I see a {object_name}"
+        self._speak_text(text)
+
+    def _speak_text(self, text: str):
+        """
+        Speak arbitrary text using TTS.
+        """
+        import subprocess
+        import tempfile
+        
+        print(f"[SPEAKING]: {text}")
+        
+        # Method 1: gTTS + audio_service
+        try:
+            from gtts import gTTS
+            import lelamp.globals as g
+            
+            tts = gTTS(text=text, lang='en')
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+                temp_path = f.name
+                tts.save(temp_path)
+            
+            if g.audio_service:
+                g.audio_service.play_by_path(temp_path, volume=100, blocking=True)
+                os.unlink(temp_path)
+                return
+            else:
+                result = subprocess.run(['aplay', temp_path], capture_output=True, timeout=15)
+                os.unlink(temp_path)
+                if result.returncode == 0:
+                    return
+        except Exception:
+            pass
+        
+        # Method 2: espeak
+        try:
+            result = subprocess.run(['espeak', text], capture_output=True, timeout=10)
+            if result.returncode == 0:
+                return
+        except Exception:
+            pass
+        
+        # Method 3: macOS say
+        try:
+            result = subprocess.run(['say', text], capture_output=True, timeout=10)
+            if result.returncode == 0:
+                return
+        except Exception:
+            pass
+
+    def identify_object(self, frame: np.ndarray) -> ObjectData:
+        """
+        Identify the main object in the frame using OpenAI Vision API.
+        
+        Args:
+            frame: OpenCV frame (numpy array)
+            
+        Returns:
+            ObjectData with the identified object
+        """
+        import base64
+        
+        # Check if OpenAI client is available from math_helper
+        if not self.math_helper.client:
+            return ObjectData(
+                detected=False,
+                object_name="unknown",
+                description="OpenAI not available",
+                confidence=0.0,
+                timestamp=time.time(),
+                raw_response=""
+            )
+        
+        try:
+            # Convert frame to base64 JPEG
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            base64_image = base64.b64encode(buffer).decode('utf-8')
+            
+            # Prompt to identify main object
+            prompt = """Look at this image and identify the MAIN object in focus.
+
+Respond in this exact format:
+OBJECT: [single word name of the main object, e.g., "laptop", "cup", "book", "phone", "person"]
+DESCRIPTION: [brief 5-10 word description of what you see]
+
+Be specific and concise. Focus on the most prominent object in the frame."""
+
+            # Call OpenAI API
+            response = self.math_helper.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "detail": "low"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=100
+            )
+            
+            if response and response.choices:
+                response_text = response.choices[0].message.content.strip()
+                
+                # Parse the response
+                object_name = "unknown"
+                description = response_text
+                
+                lines = response_text.split('\n')
+                for line in lines:
+                    if line.upper().startswith('OBJECT:'):
+                        object_name = line.split(':', 1)[1].strip().lower()
+                    elif line.upper().startswith('DESCRIPTION:'):
+                        description = line.split(':', 1)[1].strip()
+                
+                return ObjectData(
+                    detected=True,
+                    object_name=object_name,
+                    description=description,
+                    confidence=0.9,
+                    timestamp=time.time(),
+                    raw_response=response_text
+                )
+            
+        except Exception as e:
+            self.logger.error(f"Object identification error: {e}")
+        
+        return ObjectData(
+            detected=False,
+            object_name="unknown",
+            description="Failed to identify",
+            confidence=0.0,
+            timestamp=time.time(),
+            raw_response=""
+        )
+
     def _camera_loop(self):
         """Main camera capture and processing loop"""
         # 1. Open Camera
@@ -307,6 +469,22 @@ class VisionService:
                 
                 # Speak the answer aloud
                 self._speak_answer(math_result.answer)
+
+            # Object identification
+            if self.identifyObjectThisFrame:
+                print("\n" + "="*60)
+                print("[Object Detection] Identifying main object...")
+                print("="*60)
+                object_result = self.identify_object(frame)
+                self.identifyObjectThisFrame = False
+                with self._object_lock:
+                    self.latest_object_data = object_result
+                print(f"\n[OBJECT]: {object_result.object_name}")
+                print(f"[DESCRIPTION]: {object_result.description}")
+                print("="*60 + "\n")
+                
+                # Speak what was detected
+                self._speak_object(object_result.object_name)
 
             face_data = None
             hand_data = None

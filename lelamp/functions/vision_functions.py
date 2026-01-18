@@ -164,3 +164,14 @@ class VisionFunctions:
         print(f"Solving math problem called...")
         self.vision_service.solveThisFrame = True
         return "Math problem solved"
+
+    @Tool.register_tool
+    def identify_object(self) -> str:
+        """
+        Identify the main object in the current camera frame.
+        Use this when the user asks "what is this?", "what am I holding?", 
+        "what do you see?", "what's in front of you?", or asks you to identify something.
+        """
+        print(f"[Vision] Identifying object in frame...")
+        self.vision_service.identifyObjectThisFrame = True
+        return "Identifying object..."
