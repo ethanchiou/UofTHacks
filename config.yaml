@@ -30,8 +30,8 @@ agent:
 # Gemini AI for joke detection
 gemini:
   enabled: true
-  api_key: "AIzaSyDSS2cZTRVJKXPBlG8TVl5XH1Ez5d0Umlw"
-  model: "gemini-1.5-flash"
+  # API key loaded from GEMINI_API_KEY env var in .env
+  model: "gemini-2.0-flash"
   cooldown_seconds: 5
 
 # Backboard.io for persistent memory

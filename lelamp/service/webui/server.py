@@ -292,23 +292,28 @@ def _init_joke_handler(config: dict):
     
     # Initialize Gemini service for joke detection
     gemini_config = config.get("gemini", {})
-    if gemini_config.get("enabled", False) and gemini_config.get("api_key"):
+    if gemini_config.get("enabled", False):
         try:
+            import os
             from lelamp.service.gemini import GeminiService
+            # API key from env var GEMINI_API_KEY
             g.gemini_service = GeminiService(
-                api_key=gemini_config["api_key"],
-                model=gemini_config.get("model", "gemini-1.5-flash")
+                api_key=os.getenv("GEMINI_API_KEY"),
+                model=gemini_config.get("model", "gemini-2.0-flash")
             )
             g.gemini_service.set_cooldown(gemini_config.get("cooldown_seconds", 5))
             logger.info("Gemini service initialized for joke detection")
         except ImportError:
             logger.warning("Gemini service not available (install google-generativeai)")
             g.gemini_service = None
+        except ValueError as e:
+            logger.warning(f"Gemini service disabled: {e}")
+            g.gemini_service = None
         except Exception as e:
             logger.error(f"Gemini service failed: {e}")
             g.gemini_service = None
     else:
-        logger.info("Gemini service disabled or no API key")
+        logger.info("Gemini service disabled in config")
         g.gemini_service = None
     
     # Initialize Backboard service for memory
