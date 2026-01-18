@@ -206,16 +206,19 @@ class LLM:
     async def _handle_math_help(self):
         """
         Handle math help request when 'help' is detected in transcript.
-        Captures camera frame, sends to Gemini, and speaks the answer.
+        Loads test.jpg, sends to Gemini, prints response, and speaks the answer.
         """
         try:
-            logger.info("Processing math help request...")
-            answer = await self.math_helper.process_math_help()
-            logger.info(f"Math help completed. Answer: {answer}")
+            answer, transcript = await self.math_helper.process_math_help()
+            
+            # Print Gemini response to console
+            if self.math_helper.latest_result and self.math_helper.latest_result.raw_response:
+                print(f"[Gemini]: {self.math_helper.latest_result.raw_response}")
+            print(f"[Math Answer]: {answer}")
+            
         except Exception as e:
-            logger.error(f"Error processing math help: {e}")
-            # Still try to speak default answer
-            print(f"\n*** MATH ANSWER: {self.math_helper.default_answer} (error occurred) ***\n")
+            logger.error(f"Math help error: {e}")
+            print(f"[Math Helper Error]: {e}")
 
     async def send_audio(self, websocket):
         """Continuously read data from microphone queue and send to OpenAI"""
@@ -251,8 +254,7 @@ class LLM:
                     
                     # Check for "help" keyword to trigger math problem solving
                     if self.math_helper.check_transcript(transcript):
-                        logger.info(">>> HELP detected! Processing math problem...")
-                        # Run math helper asynchronously
+                        print(f"\n[Math Helper] 'help' detected - processing...")
                         asyncio.create_task(self._handle_math_help())
 
             # --- 2. AI Text Streaming Output (AI Response) ---
