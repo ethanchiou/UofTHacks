@@ -194,25 +194,60 @@ class VisionService:
     def _speak_answer(self, answer: int):
         """
         Speak the math answer aloud using TTS.
-        Uses espeak on Raspberry Pi or 'say' on macOS.
+        Uses gTTS + audio_service on Raspberry Pi.
         """
         import subprocess
+        import tempfile
         
         text = f"The answer is {answer}"
         print(f"[SPEAKING]: {text}")
         
-        # Try espeak first (Linux/Raspberry Pi)
+        # Method 1: gTTS + audio_service (Raspberry Pi speakers)
+        try:
+            from gtts import gTTS
+            import lelamp.globals as g
+            
+            # Generate speech audio file
+            tts = gTTS(text=text, lang='en')
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+                temp_path = f.name
+                tts.save(temp_path)
+            
+            print(f"[TTS] Generated audio: {temp_path}")
+            
+            # Play through audio service if available
+            if g.audio_service:
+                print("[TTS] Playing through audio_service...")
+                g.audio_service.play_by_path(temp_path, volume=100, blocking=True)
+                os.unlink(temp_path)
+                print("[TTS] Done speaking")
+                return
+            else:
+                # Fallback: try aplay directly
+                print("[TTS] audio_service not available, trying aplay...")
+                result = subprocess.run(['aplay', temp_path], capture_output=True, timeout=15)
+                os.unlink(temp_path)
+                if result.returncode == 0:
+                    return
+        except ImportError:
+            print("[TTS] gTTS not installed, trying espeak...")
+        except Exception as e:
+            print(f"[TTS] gTTS error: {e}")
+        
+        # Method 2: espeak (Linux/Raspberry Pi)
         try:
             result = subprocess.run(['espeak', text], capture_output=True, timeout=10)
             if result.returncode == 0:
+                print("[TTS] Spoke with espeak")
                 return
         except Exception:
             pass
         
-        # Try macOS say command
+        # Method 3: macOS say command
         try:
             result = subprocess.run(['say', text], capture_output=True, timeout=10)
             if result.returncode == 0:
+                print("[TTS] Spoke with macOS say")
                 return
         except Exception:
             pass
