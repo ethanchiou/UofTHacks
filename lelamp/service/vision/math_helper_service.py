@@ -187,6 +187,10 @@ class MathHelperService:
         # Initialize Gemini
         self.model = None
         self._init_gemini()
+
+    def solve(self, frame: np.ndarray):
+        """Solve the math problem in the frame."""
+        return await self.analyze_math_problem(frame)
     
     def _init_gemini(self):
         """Initialize the Gemini API client."""

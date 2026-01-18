@@ -229,8 +229,8 @@ class VisionService:
                 continue
 
             if self.solveThisFrame:
-                print(f"Solving math problem...")
-                result = self.math_helper.analyze_math_problem(frame).answer
+                print(f"Solving math problem..."*20)
+                result = self.math_helper.solve(frame).answer
                 self.solveThisFrame = False
                 print(f"Math problem solved: {result}")
 

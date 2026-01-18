@@ -162,5 +162,5 @@ class VisionFunctions:
         Use this when you see or the user asks you to solve a math problem in the frame.
         """
         print(f"Solving math problem called...")
-        self.vision_service.solve_this_frame = True
+        self.vision_service.solveThisFrame = True
         return "Math problem solved"
