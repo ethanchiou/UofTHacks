@@ -31,18 +31,24 @@ class BackboardService:
     - Cross-session memory persistence
     """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str = None):
         """
         Initialize Backboard service.
         
         Args:
-            api_key: Backboard.io API key
+            api_key: Backboard.io API key (or uses BACKBOARD_API_KEY env var)
         """
+        import os
+        
         if not BACKBOARD_AVAILABLE:
             raise ImportError("backboard-sdk not installed")
         
-        self.api_key = api_key
-        self.client = BackboardClient(api_key=api_key)
+        # Get API key from param or environment
+        self.api_key = api_key or os.getenv("BACKBOARD_API_KEY")
+        if not self.api_key:
+            raise ValueError("No API key provided. Set BACKBOARD_API_KEY in .env")
+        
+        self.client = BackboardClient(api_key=self.api_key)
         self.assistant = None
         self.assistant_id = None
         self.thread = None

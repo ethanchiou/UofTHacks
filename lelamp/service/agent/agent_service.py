@@ -179,6 +179,24 @@ class LLM:
                 fixed_tools.append(t)
         return fixed_tools
 
+    async def _check_for_joke(self, transcript: str):
+        """Check if user's speech contains a joke and respond accordingly."""
+        import lelamp.globals as g
+        
+        if not g.joke_handler:
+            return
+        
+        try:
+            result = await g.joke_handler.process_text(transcript)
+            
+            if result.get("is_joke"):
+                humor_level = result.get("humor_level", 0)
+                joke_type = result.get("joke_type", "unknown")
+                print(f"\n[Joke Detected] Type: {joke_type}, Humor: {humor_level}/10")
+                print(f"[Actions] {result.get('actions', [])}")
+        except Exception as e:
+            print(f"[Joke Detection Error] {e}")
+
     def input_callback(self, indata, frames, time, status):
         """Microphone recording callback: put recorded raw audio data into the queue"""
         # if status:
@@ -226,6 +244,9 @@ class LLM:
                     if current_stream_type: print("") # Newline
                     print(f"[User Voice Transcription]: {transcript}")
                     current_stream_type = None
+                    
+                    # Joke detection - run in background
+                    asyncio.create_task(self._check_for_joke(transcript))
 
             # --- 2. AI Text Streaming Output (AI Response) ---
             # Because modalities=["text"], we listen to response.text.delta instead of audio

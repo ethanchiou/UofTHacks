@@ -318,20 +318,25 @@ def _init_joke_handler(config: dict):
     
     # Initialize Backboard service for memory
     backboard_config = config.get("backboard", {})
-    if backboard_config.get("enabled", False) and backboard_config.get("api_key"):
+    if backboard_config.get("enabled", False):
         try:
+            import os
             from lelamp.service.memory import BackboardService
-            g.backboard_service = BackboardService(api_key=backboard_config["api_key"])
+            # API key from env var BACKBOARD_API_KEY
+            g.backboard_service = BackboardService(api_key=os.getenv("BACKBOARD_API_KEY"))
             # Note: async initialization happens later when event loop is available
             logger.info("Backboard service created (will initialize async)")
         except ImportError:
             logger.warning("Backboard service not available (install backboard-sdk)")
             g.backboard_service = None
+        except ValueError as e:
+            logger.warning(f"Backboard service disabled: {e}")
+            g.backboard_service = None
         except Exception as e:
             logger.error(f"Backboard service failed: {e}")
             g.backboard_service = None
     else:
-        logger.info("Backboard service disabled or no API key")
+        logger.info("Backboard service disabled in config")
         g.backboard_service = None
     
     # Initialize JokeHandler if Gemini is available

@@ -6,158 +6,88 @@ Run: python test_joke_detection.py
 """
 
 import asyncio
+import os
 import sys
 
-# Test phrases - mix of jokes and non-jokes
-TEST_PHRASES = [
-    "Why don't scientists trust atoms? Because they make up everything!",
-    "I'm going to the store to buy groceries.",
-    "What do you call a fake noodle? An impasta!",
-    "The weather is nice today.",
-    "Why did the scarecrow win an award? He was outstanding in his field!",
-    "Please turn on the lights.",
-    "I used to hate facial hair, but then it grew on me.",
-]
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 
-async def test_gemini_only():
-    """Test just the Gemini joke detection."""
+async def test_joke_detection():
+    """Test the Gemini joke detection with real API."""
     print("\n" + "="*60)
-    print("TEST 1: Gemini Joke Detection (standalone)")
+    print("LeLamp Joke Detection Test")
     print("="*60 + "\n")
     
-    try:
-        from lelamp.service.gemini import GeminiService
-    except ImportError:
-        print("[X] Could not import GeminiService")
-        print("   Run: pip install google-generativeai")
-        return False
-    
-    # Load API key from environment
-    import os
-    from dotenv import load_dotenv
-    load_dotenv()  # Load from .env file
-    
+    # Check API key
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("[X] No GEMINI_API_KEY in environment")
-        print("    Create a .env file with: GEMINI_API_KEY=your_key_here")
+        print("[ERROR] No GEMINI_API_KEY found in .env")
+        print("Create a .env file with: GEMINI_API_KEY=your_key")
         return False
     
-    # Initialize service
-    try:
-        gemini = GeminiService(api_key=api_key)
-        gemini.set_cooldown(0)  # Disable cooldown for testing
-        print("[OK] GeminiService initialized\n")
-    except Exception as e:
-        print(f"[X] Failed to initialize GeminiService: {e}")
-        return False
+    print(f"[OK] API key found: {api_key[:10]}...")
     
-    # Test each phrase
-    for phrase in TEST_PHRASES:
-        print(f"Testing: \"{phrase[:50]}...\"" if len(phrase) > 50 else f"Testing: \"{phrase}\"")
-        
-        try:
-            result = await gemini.detect_joke(phrase)
-            
-            if result.get("is_joke"):
-                print(f"   >> JOKE DETECTED!")
-                print(f"      Type: {result.get('joke_type')}")
-                print(f"      Humor level: {result.get('humor_level')}/10")
-            else:
-                print(f"   -- Not a joke")
-            print()
-            
-            # Small delay between API calls
-            await asyncio.sleep(0.5)
-            
-        except Exception as e:
-            print(f"   [X] Error: {e}\n")
-    
-    return True
-
-
-async def test_joke_handler():
-    """Test the full JokeHandler (without hardware)."""
-    print("\n" + "="*60)
-    print("TEST 2: JokeHandler (mock hardware)")
-    print("="*60 + "\n")
-    
+    # Import and initialize
     try:
         from lelamp.service.gemini import GeminiService
-        from lelamp.service.joke_handler import JokeHandler
-    except ImportError as e:
-        print(f"[X] Import error: {e}")
+        gemini = GeminiService(api_key=api_key)
+        gemini.set_cooldown(0)  # No cooldown for testing
+        print("[OK] GeminiService initialized\n")
+    except Exception as e:
+        print(f"[ERROR] Failed to init GeminiService: {e}")
         return False
     
-    # Load API key from environment
-    import os
-    from dotenv import load_dotenv
-    load_dotenv()
+    # Test jokes
+    test_cases = [
+        ("Why don't scientists trust atoms? Because they make up everything!", True),
+        ("I need to buy groceries tomorrow.", False),
+        ("What do you call a fake noodle? An impasta!", True),
+        ("The meeting is at 3pm.", False),
+        ("I used to hate facial hair, but then it grew on me.", True),
+    ]
     
-    api_key = os.getenv("GEMINI_API_KEY")
+    passed = 0
+    failed = 0
     
-    # Create mock services
-    class MockService:
-        def dispatch(self, action, data):
-            print(f"      [MOCK] dispatch: {action} -> {data}")
+    for text, expected_joke in test_cases:
+        print(f"Input: \"{text[:50]}{'...' if len(text) > 50 else ''}\"")
         
-        def play_sound(self, sound):
-            print(f"      [MOCK] play sound: {sound}")
+        try:
+            result = await gemini.detect_joke(text)
+            is_joke = result.get("is_joke", False)
+            humor = result.get("humor_level", 0)
+            jtype = result.get("joke_type", "none")
+            
+            status = "PASS" if is_joke == expected_joke else "FAIL"
+            if status == "PASS":
+                passed += 1
+            else:
+                failed += 1
+            
+            if is_joke:
+                print(f"  -> JOKE! Type: {jtype}, Humor: {humor}/10 [{status}]")
+            else:
+                print(f"  -> Not a joke [{status}]")
+            print()
+            
+            await asyncio.sleep(1)  # Rate limiting
+            
+        except Exception as e:
+            print(f"  -> ERROR: {e}")
+            failed += 1
     
-    mock = MockService()
+    print("="*60)
+    print(f"Results: {passed} passed, {failed} failed")
+    print("="*60 + "\n")
     
-    # Initialize
-    gemini = GeminiService(api_key=api_key)
-    gemini.set_cooldown(0)
-    
-    handler = JokeHandler(
-        gemini_service=gemini,
-        backboard_service=None,  # No Backboard for this test
-        animation_service=mock,
-        audio_service=mock,
-        rgb_service=mock,
-        min_humor_level=5
-    )
-    
-    print("[OK] JokeHandler initialized (with mock hardware)\n")
-    
-    # Test a joke
-    joke = "Why don't eggs tell jokes? They'd crack each other up!"
-    print(f"Testing: \"{joke}\"\n")
-    
-    result = await handler.process_text(joke)
-    
-    print(f"\nResult:")
-    print(f"   Is joke: {result.get('is_joke')}")
-    print(f"   Humor level: {result.get('humor_level')}")
-    print(f"   Joke type: {result.get('joke_type')}")
-    print(f"   Actions taken: {result.get('actions')}")
-    
-    return True
+    return failed == 0
 
 
 async def main():
-    print("\n" + "="*60)
-    print("LeLamp Joke Detection Test Suite")
-    print("="*60)
-    
-    # Test 1: Gemini only
-    success1 = await test_gemini_only()
-    
-    if not success1:
-        print("\n[X] Gemini test failed. Fix issues before continuing.")
-        sys.exit(1)
-    
-    # Test 2: Full handler
-    success2 = await test_joke_handler()
-    
-    print("\n" + "="*60)
-    print("TEST SUMMARY")
-    print("="*60)
-    print(f"  Gemini Detection: {'[PASS]' if success1 else '[FAIL]'}")
-    print(f"  JokeHandler:      {'[PASS]' if success2 else '[FAIL]'}")
-    print("="*60 + "\n")
+    success = await test_joke_detection()
+    sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":
