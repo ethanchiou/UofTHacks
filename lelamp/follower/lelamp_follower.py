@@ -189,7 +189,7 @@ class LeLampFollower(Robot):
             port=self.config.port,
             motors={
                 "base_yaw": Motor(1, "sts3215", norm_mode_body),
-                # "base_pitch": Motor(2, "sts3215", norm_mode_body),  # DISABLED - motor 2 not responding
+                "base_pitch": Motor(2, "sts3215", norm_mode_body),
                 "elbow_pitch": Motor(3, "sts3215", norm_mode_body),
                 "wrist_roll": Motor(4, "sts3215", norm_mode_body),
                 "wrist_pitch": Motor(5, "sts3215", norm_mode_body),
