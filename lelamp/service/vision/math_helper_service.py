@@ -188,9 +188,73 @@ class MathHelperService:
         self.model = None
         self._init_gemini()
 
-    def solve(self, frame: np.ndarray):
-        """Solve the math problem in the frame."""
-        return await self.analyze_math_problem(frame)
+    def solve(self, frame: np.ndarray) -> MathResult:
+        """
+        Solve the math problem in the frame (synchronous version).
+        
+        Args:
+            frame: OpenCV frame (numpy array) containing the math problem
+            
+        Returns:
+            MathResult with the answer
+        """
+        if not GENAI_AVAILABLE or not PIL_AVAILABLE or self.model is None:
+            self.last_error = "Gemini not available"
+            return MathResult(
+                answer=self.default_answer, problem_text="", explanation="Gemini not available",
+                confidence=0.0, timestamp=time.time(), raw_response=""
+            )
+        
+        try:
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(frame_rgb)
+            
+            # Create the prompt
+            prompt = """Look at this image. Find and solve the math problem shown.
+IMPORTANT: Return ONLY the numerical answer as a single integer.
+If you see "2 + 2 = ?", respond with just: 4
+Look at the image and give me ONLY the integer answer:"""
+
+            # Call Gemini API (synchronous)
+            response = self.model.generate_content([prompt, image])
+            
+            if response is None:
+                self.last_error = "Gemini returned None"
+                return MathResult(
+                    answer=self.default_answer, problem_text="", explanation="No response",
+                    confidence=0.0, timestamp=time.time(), raw_response=""
+                )
+            
+            # Get response text
+            try:
+                response_text = response.text.strip()
+            except Exception:
+                response_text = str(response)
+            
+            # Extract integer from response
+            answer = self._extract_integer(response_text)
+            
+            result = MathResult(
+                answer=answer,
+                problem_text=response_text,
+                explanation=response_text,
+                confidence=0.9 if answer != self.default_answer else 0.5,
+                timestamp=time.time(),
+                raw_response=response_text
+            )
+            
+            self.latest_result = result
+            self.last_error = None
+            return result
+            
+        except Exception as e:
+            logger.error(f"Gemini error: {e}")
+            self.last_error = str(e)
+            return MathResult(
+                answer=self.default_answer, problem_text="", explanation=str(e),
+                confidence=0.0, timestamp=time.time(), raw_response=""
+            )
     
     def _init_gemini(self):
         """Initialize the Gemini API client."""
