@@ -55,6 +55,13 @@ class BackboardService:
         self.thread_id = None
         self._initialized = False
         
+        # Cumulative humor stats (local cache, synced to Backboard)
+        self._humor_stats = {
+            "total_jokes": 0,
+            "total_humor_points": 0,
+            "joke_types": {},  # {"pun": 3, "wordplay": 2}
+        }
+        
         logger.info("BackboardService created (not yet initialized)")
 
     async def initialize(self, assistant_id: Optional[str] = None):
@@ -96,23 +103,49 @@ When asked what you remember, provide relevant stored information concisely."""
 
     async def store_joke_reaction(self, joke_text: str, joke_type: str, humor_level: int):
         """
-        Store that user told or reacted to a joke.
+        Store that user told or reacted to a joke and update cumulative stats.
         
         Args:
             joke_text: The joke content
             joke_type: Type of joke (pun, sarcasm, etc.)
             humor_level: Humor rating 1-10
+            
+        Returns:
+            dict with updated cumulative stats
         """
+        # Update local cumulative stats
+        self._humor_stats["total_jokes"] += 1
+        self._humor_stats["total_humor_points"] += humor_level
+        self._humor_stats["joke_types"][joke_type] = self._humor_stats["joke_types"].get(joke_type, 0) + 1
+        
+        # Calculate derived stats
+        avg_humor = self._humor_stats["total_humor_points"] / self._humor_stats["total_jokes"]
+        favorite_type = max(self._humor_stats["joke_types"], key=self._humor_stats["joke_types"].get)
+        
+        stats_summary = {
+            "total_jokes": self._humor_stats["total_jokes"],
+            "average_humor": round(avg_humor, 1),
+            "favorite_joke_type": favorite_type,
+            "joke_type_counts": self._humor_stats["joke_types"].copy()
+        }
+        
         if not self._initialized:
-            logger.warning("BackboardService not initialized, skipping store")
-            return
+            logger.warning("BackboardService not initialized, stats updated locally only")
+            return stats_summary
         
         try:
             content = f"""User interaction - JOKE DETECTED:
 - Joke type: {joke_type}
 - Humor level: {humor_level}/10
 - Content snippet: "{joke_text[:100]}..."
-- Note: User enjoys {joke_type} humor. Remember this preference."""
+
+CUMULATIVE HUMOR PROFILE UPDATE:
+- Total jokes told: {stats_summary['total_jokes']}
+- Average humor score: {stats_summary['average_humor']}/10
+- Favorite joke type: {stats_summary['favorite_joke_type']}
+- Joke type breakdown: {stats_summary['joke_type_counts']}
+
+Remember: This user enjoys {joke_type} humor and has an average humor score of {stats_summary['average_humor']}/10."""
 
             await self.client.add_message(
                 thread_id=self.thread_id,
@@ -121,10 +154,33 @@ When asked what you remember, provide relevant stored information concisely."""
                 stream=False
             )
             
-            logger.info(f"Stored joke reaction: type={joke_type}, level={humor_level}")
+            logger.info(f"Stored joke: type={joke_type}, level={humor_level}, avg={stats_summary['average_humor']}")
+            
+            return stats_summary
             
         except Exception as e:
             logger.error(f"Failed to store joke reaction: {e}")
+            return stats_summary
+    
+    def get_humor_stats(self) -> dict:
+        """Get current cumulative humor statistics."""
+        if self._humor_stats["total_jokes"] == 0:
+            return {
+                "total_jokes": 0,
+                "average_humor": 0,
+                "favorite_joke_type": None,
+                "joke_type_counts": {}
+            }
+        
+        avg_humor = self._humor_stats["total_humor_points"] / self._humor_stats["total_jokes"]
+        favorite_type = max(self._humor_stats["joke_types"], key=self._humor_stats["joke_types"].get)
+        
+        return {
+            "total_jokes": self._humor_stats["total_jokes"],
+            "average_humor": round(avg_humor, 1),
+            "favorite_joke_type": favorite_type,
+            "joke_type_counts": self._humor_stats["joke_types"].copy()
+        }
 
     async def store_preference(self, preference_key: str, preference_value: Any):
         """

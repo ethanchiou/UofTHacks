@@ -36,7 +36,7 @@ gemini:
 
 # Backboard.io for persistent memory
 backboard:
-  enabled: false  # Set to true and add API key to enable
+  enabled: true  # Backboard memory enabled
   api_key: ""  # Get from backboard.io dashboard
   assistant_id: null  # Will be auto-populated on first run
 

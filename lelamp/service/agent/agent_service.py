@@ -194,6 +194,13 @@ class LLM:
                 joke_type = result.get("joke_type", "unknown")
                 print(f"\n[Joke Detected] Type: {joke_type}, Humor: {humor_level}/10")
                 print(f"[Actions] {result.get('actions', [])}")
+                
+                # Show cumulative stats if available
+                stats = result.get("cumulative_stats")
+                if stats:
+                    print(f"[Humor Profile] Total: {stats['total_jokes']} jokes | "
+                          f"Avg Score: {stats['average_humor']}/10 | "
+                          f"Favorite Type: {stats['favorite_joke_type']}")
         except Exception as e:
             print(f"[Joke Detection Error] {e}")
 

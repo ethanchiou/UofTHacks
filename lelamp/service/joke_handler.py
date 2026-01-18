@@ -93,16 +93,22 @@ class JokeHandler:
                 await self._trigger_laugh_response(result["humor_level"])
                 result["actions"].append("laugh_response")
                 
-                # Step 3: Store in Backboard memory
-                if self.backboard and self.backboard.is_initialized:
-                    await self.backboard.store_joke_reaction(
+                # Step 3: Store in Backboard memory and get cumulative stats
+                if self.backboard:
+                    stats = await self.backboard.store_joke_reaction(
                         joke_text=text,
                         joke_type=result["joke_type"],
                         humor_level=result["humor_level"]
                     )
                     result["actions"].append("stored_memory")
-                
-                logger.info(f"Joke detected! type={result['joke_type']}, level={result['humor_level']}")
+                    result["cumulative_stats"] = stats
+                    
+                    logger.info(
+                        f"Joke detected! type={result['joke_type']}, level={result['humor_level']} | "
+                        f"Cumulative: {stats['total_jokes']} jokes, avg={stats['average_humor']}/10"
+                    )
+                else:
+                    logger.info(f"Joke detected! type={result['joke_type']}, level={result['humor_level']}")
             
             return result
             
