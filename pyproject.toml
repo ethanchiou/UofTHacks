@@ -45,6 +45,10 @@ dependencies = [
     "soundfile>=0.13.1",
     "librosa>=0.11.0",
     "mediapipe==0.10.14",
+    # Math helper dependencies (Gemini Vision API)
+    "google-generativeai>=0.3.0",
+    "gTTS>=2.5.0",
+    "Pillow>=10.0.0",
 ]
 
 [tool.uv.sources]
