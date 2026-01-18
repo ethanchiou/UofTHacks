@@ -293,7 +293,7 @@ class LLM:
                     "turn_detection": {
                         "type": "server_vad",  # Enable server-side voice activity detection (auto interruption, auto reply)
                     },
-                    "tools": self.[f for f in _fix_tools_format(Tool.tools_schema) if f['name'] == 'solve_this_frame'],
+                    "tools": [f for f in self._fix_tools_format(Tool.tools_schema) if f['name'] == 'solve_this_frame'],
                     "tool_choice": "auto",
                     "input_audio_transcription": {
                         "model": "whisper-1",
