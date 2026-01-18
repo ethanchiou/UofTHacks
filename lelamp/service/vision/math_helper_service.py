@@ -245,29 +245,23 @@ class MathHelperService:
             True if trigger phrase found and not in cooldown
         """
         if not self._running:
-            logger.debug("Service not running, ignoring transcript")
             return False
         
         transcript_lower = transcript.lower().strip()
-        logger.debug(f"Checking transcript: '{transcript_lower}'")
         
-        # Check for trigger phrases (check longer phrases first)
-        sorted_phrases = sorted(self.trigger_phrases, key=len, reverse=True)
+        # Quick check for "help" first (most common trigger)
+        if "help" in transcript_lower:
+            current_time = time.time()
+            if current_time - self._last_trigger_time < self.cooldown_seconds:
+                return False
+            return True
         
-        for phrase in sorted_phrases:
+        # Check other trigger phrases
+        for phrase in self.trigger_phrases:
             if phrase.lower() in transcript_lower:
                 current_time = time.time()
-                time_since_last = current_time - self._last_trigger_time
-                
-                # Check cooldown
-                if time_since_last < self.cooldown_seconds:
-                    logger.info(f"Trigger '{phrase}' found but in cooldown ({time_since_last:.1f}s < {self.cooldown_seconds}s)")
+                if current_time - self._last_trigger_time < self.cooldown_seconds:
                     return False
-                
-                logger.info("=" * 50)
-                logger.info(f"TRIGGER DETECTED: '{phrase}'")
-                logger.info(f"Full transcript: '{transcript}'")
-                logger.info("=" * 50)
                 return True
         
         return False
@@ -279,10 +273,6 @@ class MathHelperService:
         Returns:
             numpy array of the image, or None if loading failed
         """
-        logger.info("=" * 50)
-        logger.info("LOADING TEST IMAGE")
-        logger.info("=" * 50)
-        
         # Try multiple paths to find test.jpg
         possible_paths = [
             self.TEST_IMAGE_PATH,
@@ -292,21 +282,13 @@ class MathHelperService:
         ]
         
         for path in possible_paths:
-            logger.info(f"Trying path: {path}")
             if os.path.exists(path):
-                logger.info(f"Found test.jpg at: {path}")
                 frame = cv2.imread(path)
                 if frame is not None:
                     self.last_frame = frame.copy()
-                    logger.info(f"Image loaded successfully: shape={frame.shape}, dtype={frame.dtype}")
                     return frame
-                else:
-                    logger.error(f"cv2.imread failed for: {path}")
-            else:
-                logger.debug(f"Path does not exist: {path}")
         
-        logger.error("Could not find test.jpg!")
-        logger.error(f"Searched paths: {possible_paths}")
+        logger.error("Could not find test.jpg")
         return None
     
     def capture_frame(self) -> Optional[np.ndarray]:
@@ -335,120 +317,45 @@ class MathHelperService:
         Returns:
             MathResult with the answer
         """
-        logger.info("=" * 50)
-        logger.info("ANALYZING MATH PROBLEM WITH GEMINI")
-        logger.info("=" * 50)
-        
-        if not GENAI_AVAILABLE:
-            error_msg = "Gemini API not available - google-generativeai not installed"
-            logger.error(error_msg)
-            self.last_error = error_msg
+        if not GENAI_AVAILABLE or not PIL_AVAILABLE or self.model is None:
+            self.last_error = "Gemini not available"
             return MathResult(
-                answer=self.default_answer,
-                problem_text="",
-                explanation=error_msg,
-                confidence=0.0,
-                timestamp=time.time(),
-                raw_response=""
-            )
-        
-        if not PIL_AVAILABLE:
-            error_msg = "PIL not available - Pillow not installed"
-            logger.error(error_msg)
-            self.last_error = error_msg
-            return MathResult(
-                answer=self.default_answer,
-                problem_text="",
-                explanation=error_msg,
-                confidence=0.0,
-                timestamp=time.time(),
-                raw_response=""
-            )
-        
-        if self.model is None:
-            error_msg = "Gemini model not initialized"
-            logger.error(error_msg)
-            self.last_error = error_msg
-            return MathResult(
-                answer=self.default_answer,
-                problem_text="",
-                explanation=error_msg,
-                confidence=0.0,
-                timestamp=time.time(),
-                raw_response=""
+                answer=self.default_answer, problem_text="", explanation="Gemini not available",
+                confidence=0.0, timestamp=time.time(), raw_response=""
             )
         
         try:
             # Convert BGR to RGB
-            logger.info(f"Converting frame: shape={frame.shape}, dtype={frame.dtype}")
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             image = Image.fromarray(frame_rgb)
-            logger.info(f"PIL Image created: size={image.size}, mode={image.mode}")
-            
-            # Save debug image
-            debug_path = "/tmp/math_helper_debug.jpg"
-            try:
-                image.save(debug_path)
-                logger.info(f"Debug image saved to: {debug_path}")
-            except Exception as e:
-                logger.warning(f"Could not save debug image: {e}")
             
             # Create the prompt
             prompt = """Look at this image. Find and solve the math problem shown.
-
 IMPORTANT: Return ONLY the numerical answer as a single integer.
-
 If you see "2 + 2 = ?", respond with just: 4
-If you see "5 x 3 = ?", respond with just: 15
-If you see "10 - 7 = ?", respond with just: 3
-If you see "20 / 4 = ?", respond with just: 5
-
 Look at the image and give me ONLY the integer answer:"""
 
-            logger.info("Sending request to Gemini API...")
-            logger.info(f"Prompt: {prompt[:100]}...")
-            
-            start_time = time.time()
-            
-            # Call Gemini API (synchronously in thread)
+            # Call Gemini API
             response = await asyncio.to_thread(
                 self.model.generate_content,
                 [prompt, image]
             )
             
-            elapsed = time.time() - start_time
-            logger.info(f"Gemini API response received in {elapsed:.2f}s")
-            
-            # Check response
             if response is None:
-                error_msg = "Gemini returned None response"
-                logger.error(error_msg)
-                self.last_error = error_msg
+                self.last_error = "Gemini returned None"
                 return MathResult(
-                    answer=self.default_answer,
-                    problem_text="",
-                    explanation=error_msg,
-                    confidence=0.0,
-                    timestamp=time.time(),
-                    raw_response=""
+                    answer=self.default_answer, problem_text="", explanation="No response",
+                    confidence=0.0, timestamp=time.time(), raw_response=""
                 )
             
             # Get response text
             try:
                 response_text = response.text.strip()
-            except Exception as e:
-                error_msg = f"Could not get response text: {e}"
-                logger.error(error_msg)
-                # Try to get any available text
+            except Exception:
                 response_text = str(response)
-            
-            logger.info("=" * 50)
-            logger.info(f"GEMINI RAW RESPONSE: '{response_text}'")
-            logger.info("=" * 50)
             
             # Extract integer from response
             answer = self._extract_integer(response_text)
-            logger.info(f"Extracted answer: {answer}")
             
             result = MathResult(
                 answer=answer,
@@ -464,25 +371,16 @@ Look at the image and give me ONLY the integer answer:"""
             return result
             
         except Exception as e:
-            error_msg = f"Error analyzing math problem: {e}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            self.last_error = error_msg
-            
+            logger.error(f"Gemini error: {e}")
+            self.last_error = str(e)
             return MathResult(
-                answer=self.default_answer,
-                problem_text="",
-                explanation=error_msg,
-                confidence=0.0,
-                timestamp=time.time(),
-                raw_response=""
+                answer=self.default_answer, problem_text="", explanation=str(e),
+                confidence=0.0, timestamp=time.time(), raw_response=""
             )
     
     def _extract_integer(self, text: str) -> int:
         """Extract an integer from text response."""
         import re
-        
-        logger.debug(f"Extracting integer from: '{text}'")
         
         # Clean the text
         text = text.strip()
@@ -529,13 +427,8 @@ Look at the image and give me ONLY the integer answer:"""
         Returns:
             Tuple of (answer: int, transcript: str)
         """
-        logger.info("=" * 60)
-        logger.info("PROCESSING MATH HELP REQUEST")
-        logger.info("=" * 60)
-        
         with self._lock:
             if self._processing:
-                logger.warning("Already processing a request, skipping")
                 return self.default_answer, f"The answer is {self.default_answer}"
             self._processing = True
         
@@ -545,74 +438,41 @@ Look at the image and give me ONLY the integer answer:"""
         try:
             self._last_trigger_time = time.time()
             
-            # Step 1: Load test.jpg
-            logger.info("[Step 1/4] Loading test.jpg...")
+            # Load test.jpg
             frame = self.load_test_image()
             
             if frame is None:
-                logger.error("FAILED: Could not load test.jpg")
-                answer = self.default_answer
-                transcript = f"Sorry, I couldn't load the image. The default answer is {self.default_answer}"
+                logger.error("Could not load test.jpg")
+                transcript = f"The answer is {self.default_answer}"
             else:
-                logger.info(f"SUCCESS: Image loaded - {frame.shape}")
-                
-                # Step 2: Analyze with Gemini
-                logger.info("[Step 2/4] Sending to Gemini API...")
+                # Analyze with Gemini
                 result = await self.analyze_math_problem(frame)
                 self.latest_result = result
                 answer = result.answer
-                logger.info(f"SUCCESS: Got answer - {answer}")
+                transcript = f"The answer is {answer}"
                 
-                # Build transcript with full context
-                if result.explanation and result.explanation != str(answer):
-                    transcript = f"The answer is {answer}"
-                else:
-                    transcript = f"The answer is {answer}"
-                
-                # Step 3: Callback
+                # Callback if set
                 if self._on_result_callback:
-                    logger.info("[Step 3/4] Calling result callback...")
                     try:
                         self._on_result_callback(result)
                     except Exception as e:
-                        logger.error(f"Result callback error: {e}")
+                        logger.error(f"Callback error: {e}")
             
-            # Step 4: OUTPUT - Both Text AND Audio
-            logger.info("[Step 4/4] Outputting answer (TEXT + AUDIO)...")
+            # Set light GREEN for answer output
+            await self._set_light_green()
             
-            # ===== TEXT OUTPUT =====
-            # Print to console (visible transcript)
-            print("\n")
-            print("=" * 60)
-            print("  📢 MATH HELPER RESPONSE")
-            print("=" * 60)
-            print(f"  TRANSCRIPT: {transcript}")
-            print(f"  ANSWER: {answer}")
-            print("=" * 60)
-            print("\n")
-            
-            # Log for transcript record
-            logger.info(f"TEXT OUTPUT - Transcript: {transcript}")
-            logger.info(f"TEXT OUTPUT - Answer: {answer}")
-            
-            # ===== AUDIO OUTPUT =====
-            logger.info("Starting audio output...")
+            # Audio output
             if self._speak_callback:
                 try:
                     self._speak_callback(transcript)
-                    logger.info("Audio output via speak_callback")
-                except Exception as e:
-                    logger.error(f"Speak callback error: {e}")
-                    # Fallback to direct audio
+                except Exception:
                     await self._speak_with_audio_service(transcript)
             else:
                 await self._speak_with_audio_service(transcript)
             
-            logger.info("=" * 60)
-            logger.info("MATH HELP COMPLETE")
-            logger.info(f"  Answer: {answer}")
-            logger.info(f"  Transcript: {transcript}")
-            logger.info("=" * 60)
+            # Keep light green for 5 seconds total, then restore
+            await asyncio.sleep(5)
+            await self._restore_light()
             
             return answer, transcript
             
@@ -625,6 +485,31 @@ Look at the image and give me ONLY the integer answer:"""
         finally:
             with self._lock:
                 self._processing = False
+    
+    async def _set_light_green(self):
+        """Set the RGB light to green color."""
+        try:
+            import lelamp.globals as g
+            if g.rgb_service:
+                # Store current color to restore later
+                self._previous_color = g.rgb_service.controller.get_current_color()
+                # Set to bright green
+                g.rgb_service.controller.set_color((0, 255, 0), transition=False)
+                logger.debug("Light set to GREEN")
+        except Exception as e:
+            logger.debug(f"Could not set light green: {e}")
+    
+    async def _restore_light(self):
+        """Restore the RGB light to previous color."""
+        try:
+            import lelamp.globals as g
+            if g.rgb_service:
+                # Restore previous color or default to off
+                color = getattr(self, '_previous_color', (0, 0, 0))
+                g.rgb_service.controller.set_color(color, transition=True)
+                logger.debug("Light restored")
+        except Exception as e:
+            logger.debug(f"Could not restore light: {e}")
     
     async def _speak_with_audio_service(self, text: str):
         """
@@ -640,105 +525,68 @@ Look at the image and give me ONLY the integer answer:"""
         except ImportError:
             audio_svc = None
         
-        # Method 1: Use gTTS + audio_service (Raspberry Pi speakers)
-        # This is the PRIMARY method for Raspberry Pi output
+        # Method 1: gTTS + audio_service (Raspberry Pi)
         try:
             from gtts import gTTS
             import tempfile
             
-            logger.info("Generating TTS audio with gTTS...")
             tts = gTTS(text=text, lang='en')
-            
-            # Save to temp file
             with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
                 temp_path = f.name
                 tts.save(temp_path)
             
-            logger.info(f"TTS audio saved to: {temp_path}")
-            
-            # Play via audio_service (Raspberry Pi speakers)
             if audio_svc:
-                logger.info("Playing via audio_service (Raspberry Pi speaker)...")
                 audio_svc.play_by_path(temp_path, blocking=True)
-                logger.info("SUCCESS: Played on Raspberry Pi speaker via audio_service")
                 os.unlink(temp_path)
                 return
             else:
-                logger.warning("audio_service not available, trying direct sounddevice...")
-                # Fallback to sounddevice (plays on whatever device is default)
                 try:
                     import sounddevice as sd
                     import soundfile as sf
                     data, sr = sf.read(temp_path)
                     sd.play(data, sr)
                     sd.wait()
-                    logger.info("Played with gTTS via sounddevice")
                     os.unlink(temp_path)
                     return
-                except Exception as e:
-                    logger.debug(f"sounddevice playback failed: {e}")
+                except Exception:
                     os.unlink(temp_path)
-                    
-        except ImportError:
-            logger.debug("gTTS not installed, trying other methods...")
-        except Exception as e:
-            logger.warning(f"gTTS method failed: {e}")
+        except Exception:
+            pass
         
-        # Method 2: espeak (Linux/Raspberry Pi native TTS)
-        # This speaks directly on the Pi without needing gTTS
+        # Method 2: espeak (Linux/Raspberry Pi)
         try:
             import subprocess
-            logger.info("Trying espeak (Raspberry Pi native TTS)...")
             result = subprocess.run(['espeak', text], capture_output=True, timeout=10)
             if result.returncode == 0:
-                logger.info("SUCCESS: Spoke with espeak on Raspberry Pi")
                 return
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            logger.debug(f"espeak not available: {e}")
+        except Exception:
+            pass
         
-        # Method 3: pico2wave (Linux TTS alternative)
+        # Method 3: pico2wave (Linux)
         try:
             import subprocess
             import tempfile
-            
-            logger.info("Trying pico2wave (Linux TTS)...")
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
                 temp_path = f.name
-            
-            # Generate speech with pico2wave
-            result = subprocess.run(
-                ['pico2wave', '-w', temp_path, text],
-                capture_output=True, timeout=10
-            )
-            
+            result = subprocess.run(['pico2wave', '-w', temp_path, text], capture_output=True, timeout=10)
             if result.returncode == 0:
-                # Play via audio_service
                 if audio_svc:
                     audio_svc.play_by_path(temp_path, blocking=True)
-                    logger.info("SUCCESS: Played pico2wave audio on Raspberry Pi")
                 else:
                     subprocess.run(['aplay', temp_path], timeout=10)
-                    logger.info("Played pico2wave via aplay")
                 os.unlink(temp_path)
                 return
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            logger.debug(f"pico2wave not available: {e}")
-        except Exception as e:
-            logger.debug(f"pico2wave failed: {e}")
+        except Exception:
+            pass
         
-        # Method 4: macOS say command (ONLY for Mac development)
-        # This is the FALLBACK when not on Raspberry Pi
+        # Method 4: macOS say (fallback for dev)
         try:
             import subprocess
-            logger.info("Falling back to macOS 'say' command (local Mac only)...")
             result = subprocess.run(['say', text], capture_output=True, timeout=10)
             if result.returncode == 0:
-                logger.info("Spoke with macOS 'say' command (LOCAL Mac, not Raspberry Pi)")
                 return
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            logger.debug(f"macOS say not available: {e}")
-        
-        logger.warning("No TTS method available - could not speak on any device")
+        except Exception:
+            pass
 
 
 # Global instance
