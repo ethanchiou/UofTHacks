@@ -32,13 +32,14 @@ dependencies = [
     # opencv-python-headless at end + override-dependencies ensures headless is used
     "opencv-python-headless>=4.11.0.86",
     "torchaudio>=2.7.1",
-    "rpi-ws281x>=5.0.0",
-    "lgpio>=0.2.2.0",
-    "adafruit-circuitpython-neopixel>=6.3.18",
-    "adafruit-blinka>=8.68.1",
-    "adafruit-blinka-raspberry-pi5-neopixel>=1.0.0rc2",  # Pi5 NeoPixel support
+    # Raspberry Pi specific dependencies - only install on Linux
+    "rpi-ws281x>=5.0.0 ; sys_platform == 'linux'",
+    "lgpio>=0.2.2.0 ; sys_platform == 'linux'",
+    "adafruit-circuitpython-neopixel>=6.3.18 ; sys_platform == 'linux'",
+    "adafruit-blinka>=8.68.1 ; sys_platform == 'linux'",
+    "adafruit-blinka-raspberry-pi5-neopixel>=1.0.0rc2 ; sys_platform == 'linux'",  # Pi5 NeoPixel support
     "cryptography==44.0.0",
-    "rpi-lgpio>=0.6",
+    "rpi-lgpio>=0.6 ; sys_platform == 'linux'",
     "deepgram-sdk>=5.3.1",
     "groq>=1.0.0",
     "scipy>=1.17.0",

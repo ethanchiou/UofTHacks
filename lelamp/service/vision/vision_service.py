@@ -65,7 +65,7 @@ class VisionService:
             self,
             camera_index: Union[int, str] = 0,
             resolution: tuple = (320, 240),
-            fps: int = 20, # Increased FPS for smoother MP tracking
+            fps: int = 30, # Target FPS for vision processing
             publish_video: bool = False,
             publish_image: bool = False,
             image_fps: float = 1.0,
@@ -103,14 +103,14 @@ class VisionService:
             self.logger.info("Initializing MediaPipe solutions...")
             self.mp_face_mesh = mp.solutions.face_mesh
             self.face_mesh = self.mp_face_mesh.FaceMesh(
-                max_num_faces=1,
+                max_num_faces=5,  # Support up to 5 faces
                 refine_landmarks=True,
                 min_detection_confidence=min_detection_confidence,
                 min_tracking_confidence=min_tracking_confidence
             )
             self.mp_hands = mp.solutions.hands
             self.hands = self.mp_hands.Hands(
-                max_num_hands=1,
+                max_num_hands=2,  # Support up to 2 hands (left and right)
                 model_complexity=0, # 0=Lite, 1=Full
                 min_detection_confidence=min_detection_confidence,
                 min_tracking_confidence=min_tracking_confidence
@@ -123,8 +123,10 @@ class VisionService:
                 self.logger.error(f"Failed to load face cascade from {cascade_path}")
 
         # --- Data & Locks ---
-        self.latest_face_data: Optional[FaceData] = None
-        self.latest_hand_data: Optional[HandData] = None
+        self.latest_face_data: Optional[FaceData] = None  # Keep for backward compatibility
+        self.latest_faces_data: List[FaceData] = []  # List of all detected faces
+        self.latest_hand_data: Optional[HandData] = None  # Keep for backward compatibility
+        self.latest_hands_data: List[HandData] = []  # List of all detected hands
         self._face_lock = threading.Lock()
         self._hand_lock = threading.Lock()
 
@@ -234,28 +236,47 @@ class VisionService:
                 # MediaPipe requires RGB
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                # A. Face Mesh
+                # A. Face Mesh - process multiple faces
                 mp_face_results = self.face_mesh.process(rgb_frame)
-                face_data = self._process_mediapipe_faces(mp_face_results, frame.shape)
+                faces_data = self._process_mediapipe_faces_multiple(mp_face_results, frame.shape)
+                # Keep first face for backward compatibility
+                face_data = faces_data[0] if faces_data else FaceData(
+                    detected=False, position=(0.0, 0.0), size=0.0, 
+                    timestamp=time.time(), head_pose={'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
+                )
 
-                # B. Hands
+                # B. Hands - process multiple hands
                 mp_hand_results = self.hands.process(rgb_frame)
-                hand_data = self._process_hand_results(mp_hand_results, frame.shape)
+                hands_data = self._process_hand_results_multiple(mp_hand_results, frame.shape)
+                # Keep first hand for backward compatibility
+                hand_data = hands_data[0] if hands_data else HandData(
+                    detected=False, handedness="None", position=(0.0, 0.0),
+                    gesture="None", fingers_up=[0,0,0,0,0], timestamp=time.time()
+                )
 
             else:
                 # Fallback to Haar Cascade (Gray)
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(40, 40))
-                face_data = self._process_haar_faces(faces, frame.shape)
-                # No hand tracking in fallback mode
+                faces_data = self._process_haar_faces_multiple(faces, frame.shape)
+                face_data = faces_data[0] if faces_data else FaceData(
+                    detected=False, position=(0.0, 0.0), size=0.0,
+                    timestamp=time.time(), head_pose={'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
+                )
+                hands_data = []  # No hand tracking in fallback mode
+                hand_data = HandData(
+                    detected=False, handedness="None", position=(0.0, 0.0),
+                    gesture="None", fingers_up=[0,0,0,0,0], timestamp=time.time()
+                )
 
             # 5. Update State
             with self._face_lock:
-                self.latest_face_data = face_data
+                self.latest_face_data = face_data  # Backward compatibility
+                self.latest_faces_data = faces_data  # Multiple faces
 
-            if hand_data:
-                with self._hand_lock:
-                    self.latest_hand_data = hand_data
+            with self._hand_lock:
+                self.latest_hand_data = hand_data  # Backward compatibility
+                self.latest_hands_data = hands_data  # Multiple hands
 
             # 6. "First Face Detected" Sound Logic
             if face_data.detected and not self._last_face_detected:
@@ -302,102 +323,143 @@ class VisionService:
     # --- MediaPipe Processing Methods ---
 
     def _process_mediapipe_faces(self, results, frame_shape) -> FaceData:
-        """Process MediaPipe Face Mesh results"""
-        if not results.multi_face_landmarks:
-            return FaceData(
-                detected=False,
-                position=(0.0, 0.0),
-                size=0.0,
-                timestamp=time.time(),
-                head_pose={'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
-            )
+        """Process MediaPipe Face Mesh results (single face, backward compatibility)"""
+        faces = self._process_mediapipe_faces_multiple(results, frame_shape)
+        return faces[0] if faces else FaceData(
+            detected=False,
+            position=(0.0, 0.0),
+            size=0.0,
+            timestamp=time.time(),
+            head_pose={'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
+        )
 
-        face_landmarks = results.multi_face_landmarks[0]
+    def _process_mediapipe_faces_multiple(self, results, frame_shape) -> List[FaceData]:
+        """Process MediaPipe Face Mesh results for multiple faces"""
+        if not results.multi_face_landmarks:
+            return []
+
+        faces_data = []
         frame_h, frame_w = frame_shape[:2]
 
-        # Nose tip (landmark 1)
-        nose = face_landmarks.landmark[1]
+        for face_landmarks in results.multi_face_landmarks:
+            # Nose tip (landmark 1)
+            nose = face_landmarks.landmark[1]
 
-        # Normalized position (-1.0 to 1.0)
-        pos_x = (nose.x * frame_w - frame_w / 2) / (frame_w / 2)
-        pos_y = (nose.y * frame_h - frame_h / 2) / (frame_h / 2)
+            # Normalized position (-1.0 to 1.0)
+            pos_x = (nose.x * frame_w - frame_w / 2) / (frame_w / 2)
+            pos_y = (nose.y * frame_h - frame_h / 2) / (frame_h / 2)
 
-        # Size estimation (Eye distance)
-        left_eye = face_landmarks.landmark[33]
-        right_eye = face_landmarks.landmark[263]
-        eye_distance = np.sqrt(
-            ((left_eye.x - right_eye.x) * frame_w) ** 2 +
-            ((left_eye.y - right_eye.y) * frame_h) ** 2
-        )
-        size = min(1.0, eye_distance / 100.0)
+            # Size estimation (Eye distance)
+            left_eye = face_landmarks.landmark[33]
+            right_eye = face_landmarks.landmark[263]
+            eye_distance = np.sqrt(
+                ((left_eye.x - right_eye.x) * frame_w) ** 2 +
+                ((left_eye.y - right_eye.y) * frame_h) ** 2
+            )
+            size = min(1.0, eye_distance / 100.0)
 
-        # Head Pose
-        head_pose = self._calculate_head_pose(face_landmarks, frame_w, frame_h)
+            # Head Pose
+            head_pose = self._calculate_head_pose(face_landmarks, frame_w, frame_h)
 
-        return FaceData(
-            detected=True,
-            position=(pos_x, pos_y),
-            size=size,
-            timestamp=time.time(),
-            head_pose=head_pose
-        )
+            faces_data.append(FaceData(
+                detected=True,
+                position=(pos_x, pos_y),
+                size=size,
+                timestamp=time.time(),
+                head_pose=head_pose
+            ))
+
+        return faces_data
 
     def _process_hand_results(self, results, frame_shape) -> HandData:
-        """Process MediaPipe Hands results"""
+        """Process MediaPipe Hands results (single hand, backward compatibility)"""
+        hands = self._process_hand_results_multiple(results, frame_shape)
+        return hands[0] if hands else HandData(
+            detected=False,
+            handedness="None",
+            position=(0.0, 0.0),
+            gesture="None",
+            fingers_up=[0,0,0,0,0],
+            timestamp=time.time()
+        )
+
+    def _process_hand_results_multiple(self, results, frame_shape) -> List[HandData]:
+        """Process MediaPipe Hands results for multiple hands"""
         if not results.multi_hand_landmarks:
-            return HandData(
-                detected=False,
-                handedness="None",
-                position=(0.0, 0.0),
-                gesture="None",
-                fingers_up=[0,0,0,0,0],
-                timestamp=time.time()
-            )
+            return []
 
-        hand_landmarks = results.multi_hand_landmarks[0]
-
-        # Store all landmarks
-        all_landmarks = [(lm.x, lm.y) for lm in hand_landmarks.landmark]
-
-        # Handedness
-        handedness_info = "Right" # Default
-        if results.multi_handedness:
-            handedness_info = results.multi_handedness[0].classification[0].label
-
+        hands_data = []
         frame_h, frame_w = frame_shape[:2]
 
-        # Wrist position
-        wrist = hand_landmarks.landmark[0]
-        pos_x = (wrist.x * frame_w - frame_w / 2) / (frame_w / 2)
-        pos_y = (wrist.y * frame_h - frame_h / 2) / (frame_h / 2)
+        for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+            # Store all landmarks
+            all_landmarks = [(lm.x, lm.y) for lm in hand_landmarks.landmark]
 
-        # Fingers
-        fingers_up = self._count_fingers(hand_landmarks)
+            # Handedness
+            handedness_info = "Right"  # Default
+            if results.multi_handedness and idx < len(results.multi_handedness):
+                handedness_info = results.multi_handedness[idx].classification[0].label
 
-        # Pinch Detection
-        thumb_tip = hand_landmarks.landmark[4]
-        index_tip = hand_landmarks.landmark[8]
+            # Wrist position
+            wrist = hand_landmarks.landmark[0]
+            pos_x = (wrist.x * frame_w - frame_w / 2) / (frame_w / 2)
+            pos_y = (wrist.y * frame_h - frame_h / 2) / (frame_h / 2)
 
-        dx = (thumb_tip.x - index_tip.x) * frame_w
-        dy = (thumb_tip.y - index_tip.y) * frame_h
-        distance_px = np.sqrt(dx**2 + dy**2)
+            # Fingers
+            fingers_up = self._count_fingers(hand_landmarks)
 
-        PINCH_THRESHOLD_PX = 40
-        is_pinching = distance_px < PINCH_THRESHOLD_PX
+            # Pinch Detection
+            thumb_tip = hand_landmarks.landmark[4]
+            index_tip = hand_landmarks.landmark[8]
 
-        gesture = "Pinch" if is_pinching else "None"
+            dx = (thumb_tip.x - index_tip.x) * frame_w
+            dy = (thumb_tip.y - index_tip.y) * frame_h
+            distance_px = np.sqrt(dx**2 + dy**2)
 
-        return HandData(
-            detected=True,
-            handedness=handedness_info,
-            position=(pos_x, pos_y),
-            gesture=gesture,
-            fingers_up=fingers_up,
-            timestamp=time.time(),
-            is_pinching=is_pinching,
-            pinch_distance=distance_px / frame_w,
-            landmarks=all_landmarks
-        )
+            PINCH_THRESHOLD_PX = 40
+            is_pinching = distance_px < PINCH_THRESHOLD_PX
+
+            # Enhanced gesture detection
+            gesture = self._detect_gesture(fingers_up, is_pinching)
+
+            hands_data.append(HandData(
+                detected=True,
+                handedness=handedness_info,
+                position=(pos_x, pos_y),
+                gesture=gesture,
+                fingers_up=fingers_up,
+                timestamp=time.time(),
+                is_pinching=is_pinching,
+                pinch_distance=distance_px / frame_w,
+                landmarks=all_landmarks
+            ))
+
+        return hands_data
+
+    def _detect_gesture(self, fingers_up: List[int], is_pinching: bool) -> str:
+        """Detect hand gesture from finger positions"""
+        if is_pinching:
+            return "Pinch"
+        
+        # Count fingers up
+        total_fingers = sum(fingers_up)
+        
+        if total_fingers == 0:
+            return "Fist"
+        elif total_fingers == 1 and fingers_up[1] == 1:  # Only index finger
+            return "Point"
+        elif total_fingers == 2 and fingers_up[1] == 1 and fingers_up[2] == 1:  # Index and middle
+            return "Peace"
+        elif total_fingers == 3:
+            return "Three"
+        elif total_fingers == 4:
+            return "Four"
+        elif total_fingers == 5:
+            return "Open"
+        elif fingers_up[0] == 1 and total_fingers == 1:  # Only thumb
+            return "Thumbs Up"
+        else:
+            return "Custom"
 
     def _count_fingers(self, landmarks):
         """Count fingers up [Thumb, Index, Middle, Ring, Pinky]"""
@@ -470,27 +532,37 @@ class VisionService:
     # --- Legacy / Fallback Processing ---
 
     def _process_haar_faces(self, faces, frame_shape) -> FaceData:
-        """Legacy processing for Haar Cascade"""
+        """Legacy processing for Haar Cascade (single face, backward compatibility)"""
+        faces_list = self._process_haar_faces_multiple(faces, frame_shape)
+        return faces_list[0] if faces_list else FaceData(
+            False, (0.0, 0.0), 0.0, time.time(), {'pitch': 0, 'yaw': 0, 'roll': 0}
+        )
+
+    def _process_haar_faces_multiple(self, faces, frame_shape) -> List[FaceData]:
+        """Legacy processing for Haar Cascade (multiple faces)"""
         if len(faces) == 0:
-            return FaceData(False, (0.0, 0.0), 0.0, time.time(), {'pitch': 0, 'yaw': 0, 'roll': 0})
+            return []
 
         faces_sorted = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        x, y, w, h = faces_sorted[0]
         frame_h, frame_w = frame_shape[:2]
+        faces_data = []
 
-        face_center_x = x + w // 2
-        face_center_y = y + h // 2
-        pos_x = (face_center_x - frame_w // 2) / (frame_w // 2)
-        pos_y = (face_center_y - frame_h // 2) / (frame_h // 2)
-        size = (w * h) / (frame_w * frame_h)
+        for x, y, w, h in faces_sorted:
+            face_center_x = x + w // 2
+            face_center_y = y + h // 2
+            pos_x = (face_center_x - frame_w // 2) / (frame_w // 2)
+            pos_y = (face_center_y - frame_h // 2) / (frame_h // 2)
+            size = (w * h) / (frame_w * frame_h)
 
-        return FaceData(
-            detected=True,
-            position=(pos_x, pos_y),
-            size=size,
-            timestamp=time.time(),
-            head_pose={'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0} # Haar can't do pose
-        )
+            faces_data.append(FaceData(
+                detected=True,
+                position=(pos_x, pos_y),
+                size=size,
+                timestamp=time.time(),
+                head_pose={'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}  # Haar can't do pose
+            ))
+
+        return faces_data
 
     # --- LiveKit Publishing ---
 
@@ -550,12 +622,24 @@ class VisionService:
     # --- Public Accessors & Controls ---
 
     def get_face_data(self) -> Optional[FaceData]:
+        """Get the first detected face (backward compatibility)"""
         with self._face_lock:
             return self.latest_face_data
 
+    def get_faces_data(self) -> List[FaceData]:
+        """Get all detected faces"""
+        with self._face_lock:
+            return self.latest_faces_data.copy()
+
     def get_hand_data(self) -> Optional[HandData]:
+        """Get the first detected hand (backward compatibility)"""
         with self._hand_lock:
             return self.latest_hand_data
+
+    def get_hands_data(self) -> List[HandData]:
+        """Get all detected hands"""
+        with self._hand_lock:
+            return self.latest_hands_data.copy()
 
     def enable_tracking_mode(self, callback: Callable[[FaceData], None]):
         """Enable face tracking (full data callback)"""

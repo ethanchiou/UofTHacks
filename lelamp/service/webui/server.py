@@ -68,8 +68,13 @@ def init_hardware_services():
     if _hardware_initialized:
         return
 
+    # Detect platform for conditional service initialization
+    import platform
+    current_platform = platform.system().lower()
+    is_raspberry_pi = current_platform == "linux" and ("raspberry" in platform.platform().lower() or os.path.exists("/proc/device-tree/model"))
+
     config = g.CONFIG
-    logger.info("Initializing hardware services (server.py is primary)...")
+    logger.info(f"Initializing hardware services (server.py is primary) on {current_platform}...")
 
     # Auto-detect hardware and update config if needed
     # This handles missing USB camera gracefully
@@ -81,17 +86,21 @@ def init_hardware_services():
     elif not detection["camera_detected"]:
         logger.info("USB camera not detected (audio capture may fail)")
 
-    # RGB Service - default enabled
-    if config.get("rgb", {}).get("enabled", True):
+    # RGB Service - only enable on Raspberry Pi
+    if is_raspberry_pi and config.get("rgb", {}).get("enabled", True):
         _init_rgb_service(config)
+    elif not is_raspberry_pi:
+        logger.info("RGB service disabled (not running on Raspberry Pi)")
     else:
         logger.info("RGB disabled in config")
 
-    # Motor/Animation Service - default enabled
-    if config.get("motors", {}).get("enabled", True):
+    # Motor/Animation Service - only enable on Raspberry Pi
+    if is_raspberry_pi and config.get("motors", {}).get("enabled", True):
         # Check if Waveshare board matches udev rules (handles board replacement)
         _check_servo_driver_udev()
         _init_animation_service(config)
+    elif not is_raspberry_pi:
+        logger.info("Motor/Animation service disabled (not running on Raspberry Pi)")
     else:
         logger.info("Motors disabled in config")
 
@@ -127,8 +136,13 @@ def init_hardware_services():
 
 def _init_rgb_service(config: dict):
     """Initialize RGB LED service."""
-    from lelamp.service.rgb import RGBService
-    from lelamp.service.rgb.sequences import set_rgb_fps
+    try:
+        from lelamp.service.rgb import RGBService
+        from lelamp.service.rgb.sequences import set_rgb_fps
+    except ImportError as e:
+        logger.warning(f"RGB service unavailable (missing dependencies): {e}")
+        g.rgb_service = None
+        return
 
     rgb_config = config.get("rgb", {})
     led_count = rgb_config.get("led_count", 93)
@@ -170,7 +184,12 @@ def _init_rgb_service(config: dict):
 
 def _init_animation_service(config: dict):
     """Initialize animation/motor service."""
-    from lelamp.service.motors.animation_service import AnimationService
+    try:
+        from lelamp.service.motors.animation_service import AnimationService
+    except ImportError as e:
+        logger.warning(f"Animation service unavailable (missing dependencies): {e}")
+        g.animation_service = None
+        return
 
     motors_config = config.get("motors", {})
     port = motors_config.get("port") or config.get("port", "/dev/lelamp")

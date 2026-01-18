@@ -125,3 +125,64 @@ async def update_tracking_config(data: Dict[str, Any]):
         return {"success": True, "message": "Tracking config updated"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@router.get("/vision")
+async def get_vision_data():
+    """Get current vision data including multiple faces and hands."""
+    vision = get_vision_service()
+    
+    if not vision:
+        return {
+            'success': False,
+            'error': 'Vision service not available',
+            'faces_count': 0,
+            'hands_count': 0,
+            'faces': [],
+            'hands': []
+        }
+    
+    try:
+        faces_data = vision.get_faces_data()
+        hands_data = vision.get_hands_data()
+        
+        # Convert faces to dict format
+        faces = []
+        for face in faces_data:
+            if face and face.detected:
+                faces.append({
+                    'position': list(face.position),
+                    'size': face.size,
+                    'head_pose': face.head_pose if face.head_pose else None,
+                    'timestamp': face.timestamp
+                })
+        
+        # Convert hands to dict format
+        hands = []
+        for hand in hands_data:
+            if hand and hand.detected:
+                hands.append({
+                    'handedness': hand.handedness,
+                    'position': list(hand.position),
+                    'gesture': hand.gesture,
+                    'is_pinching': hand.is_pinching,
+                    'fingers_up': hand.fingers_up,
+                    'timestamp': hand.timestamp
+                })
+        
+        return {
+            'success': True,
+            'faces_count': len(faces),
+            'hands_count': len(hands),
+            'faces': faces,
+            'hands': hands
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e),
+            'faces_count': 0,
+            'hands_count': 0,
+            'faces': [],
+            'hands': []
+        }

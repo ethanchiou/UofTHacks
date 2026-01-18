@@ -51,11 +51,11 @@ name = "adafruit-blinka"
 version = "8.68.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-circuitpython-typing" },
-    { name = "adafruit-platformdetect" },
-    { name = "adafruit-pureio" },
-    { name = "binho-host-adapter" },
-    { name = "pyftdi" },
+    { name = "adafruit-circuitpython-typing", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-platformdetect", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-pureio", marker = "sys_platform == 'linux'" },
+    { name = "binho-host-adapter", marker = "sys_platform == 'linux'" },
+    { name = "pyftdi", marker = "sys_platform == 'linux'" },
     { name = "sysv-ipc", marker = "platform_machine != 'mips' and sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/dd/15/e452ca7e9f8c25e42d97c32b5a548324d978397648c674b7f7f2ad1ea0ce/adafruit_blinka-8.68.1.tar.gz", hash = "sha256:81808f5b5a16cbb880bf3617907888d105877b479e84318859e011477b889b34", size = 923629, upload-time = "2025-12-18T23:01:15.671Z" }
@@ -82,8 +82,8 @@ name = "adafruit-circuitpython-busdevice"
 version = "5.2.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-blinka" },
-    { name = "adafruit-circuitpython-typing" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-circuitpython-typing", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/99/70/2bb69cf3e79fc1bda7b111bcf9f90ff25ac705960eff6bd1375ffad754ff/adafruit_circuitpython_busdevice-5.2.14.tar.gz", hash = "sha256:377f4d9c6b7ac256a0c686fe3d88bb2d10873cec992ff7805c8719a474e92127", size = 24468, upload-time = "2025-10-20T20:37:13.497Z" }
 wheels = [
@@ -95,7 +95,7 @@ name = "adafruit-circuitpython-connectionmanager"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-blinka" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bc/82/69ca5ef604b0513a5f85a583d255b2d0c48042592842dfbc955b610cf3b6/adafruit_circuitpython_connectionmanager-3.1.6.tar.gz", hash = "sha256:daa41f7675533fbb451c0f522c894911dd003f67b26f0e7be832f2e240ba28b4", size = 33798, upload-time = "2025-10-20T20:38:47.369Z" }
 wheels = [
@@ -107,8 +107,8 @@ name = "adafruit-circuitpython-neopixel"
 version = "6.3.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-blinka" },
-    { name = "adafruit-circuitpython-pixelbuf" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-circuitpython-pixelbuf", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/68/bf/f7f914120f074ac495eaa1a0cd302398b1d3ce2e45f199baf9965e11ddc0/adafruit_circuitpython_neopixel-6.3.18.tar.gz", hash = "sha256:0f61b15ac96fbca4743e56e2f35c6c46da4935be9445261b2902597988fc0f22", size = 25293, upload-time = "2025-10-20T20:05:28.511Z" }
 wheels = [
@@ -120,7 +120,7 @@ name = "adafruit-circuitpython-pixelbuf"
 version = "2.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-blinka" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/87/1e/1662a9c023affdc2e8a3f5c47dc5c4288955d4741164747d5250202bca24/adafruit_circuitpython_pixelbuf-2.0.10.tar.gz", hash = "sha256:19b78183b5773fa4a81eb8fc1458b9feb8178884864abd7c6676db2765e26ed3", size = 24751, upload-time = "2025-10-20T20:47:22.825Z" }
 wheels = [
@@ -132,8 +132,8 @@ name = "adafruit-circuitpython-requests"
 version = "4.1.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-blinka" },
-    { name = "adafruit-circuitpython-connectionmanager" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-circuitpython-connectionmanager", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f5/ae/ec54c3e224a012d620997604fdd6abdbff1b945df3b4aef43d780fd1d5c3/adafruit_circuitpython_requests-4.1.15.tar.gz", hash = "sha256:409cb1c9304a0ce0a4b2f64d572400007849f6972f92a4b08ebfe35a532761e7", size = 67841, upload-time = "2025-11-03T21:32:59.201Z" }
 wheels = [
@@ -145,10 +145,10 @@ name = "adafruit-circuitpython-typing"
 version = "1.12.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adafruit-blinka" },
-    { name = "adafruit-circuitpython-busdevice" },
-    { name = "adafruit-circuitpython-requests" },
-    { name = "typing-extensions" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-circuitpython-busdevice", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-circuitpython-requests", marker = "sys_platform == 'linux'" },
+    { name = "typing-extensions", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/65/a2/40a3440aed2375371507af668570b68523ee01db9c25c47ce5a05883170e/adafruit_circuitpython_typing-1.12.3.tar.gz", hash = "sha256:63f196f834e47842bcd4cf8c37aaa0c61e1aeb5d07f056c875fc3016cda91a12", size = 25603, upload-time = "2025-10-27T18:17:38.56Z" }
 wheels = [
@@ -400,7 +400,7 @@ name = "binho-host-adapter"
 version = "0.1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyserial" },
+    { name = "pyserial", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/68/36/29b7b896e83e195fac6d64ccff95c0f24a18ee86e7437a22e60e0331d90a/binho-host-adapter-0.1.6.tar.gz", hash = "sha256:1e6da7a84e208c13b5f489066f05774bff1d593d0f5bf1ca149c2b8e83eae856", size = 10068, upload-time = "2020-06-04T19:38:11.789Z" }
 wheels = [
@@ -1512,9 +1512,9 @@ name = "lelamp-runtime"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "adafruit-blinka" },
-    { name = "adafruit-blinka-raspberry-pi5-neopixel" },
-    { name = "adafruit-circuitpython-neopixel" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-blinka-raspberry-pi5-neopixel", marker = "sys_platform == 'linux'" },
+    { name = "adafruit-circuitpython-neopixel", marker = "sys_platform == 'linux'" },
     { name = "aiohttp" },
     { name = "cryptography" },
     { name = "deepgram-sdk" },
@@ -1525,7 +1525,7 @@ dependencies = [
     { name = "groq" },
     { name = "httpx" },
     { name = "lerobot" },
-    { name = "lgpio" },
+    { name = "lgpio", marker = "sys_platform == 'linux'" },
     { name = "librosa" },
     { name = "mediapipe" },
     { name = "netifaces" },
@@ -1538,8 +1538,8 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pytz" },
     { name = "pyyaml" },
-    { name = "rpi-lgpio" },
-    { name = "rpi-ws281x" },
+    { name = "rpi-lgpio", marker = "sys_platform == 'linux'" },
+    { name = "rpi-ws281x", marker = "sys_platform == 'linux'" },
     { name = "scipy" },
     { name = "sounddevice" },
     { name = "soundfile" },
@@ -1558,9 +1558,9 @@ hardware = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adafruit-blinka", specifier = ">=8.68.1" },
-    { name = "adafruit-blinka-raspberry-pi5-neopixel", specifier = ">=1.0.0rc2" },
-    { name = "adafruit-circuitpython-neopixel", specifier = ">=6.3.18" },
+    { name = "adafruit-blinka", marker = "sys_platform == 'linux'", specifier = ">=8.68.1" },
+    { name = "adafruit-blinka-raspberry-pi5-neopixel", marker = "sys_platform == 'linux'", specifier = ">=1.0.0rc2" },
+    { name = "adafruit-circuitpython-neopixel", marker = "sys_platform == 'linux'", specifier = ">=6.3.18" },
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "cryptography", specifier = "==44.0.0" },
     { name = "deepgram-sdk", specifier = ">=5.3.1" },
@@ -1571,7 +1571,7 @@ requires-dist = [
     { name = "groq", specifier = ">=1.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "lerobot", git = "https://github.com/huggingface/lerobot" },
-    { name = "lgpio", specifier = ">=0.2.2.0" },
+    { name = "lgpio", marker = "sys_platform == 'linux'", specifier = ">=0.2.2.0" },
     { name = "librosa", specifier = ">=0.11.0" },
     { name = "mediapipe", specifier = "==0.10.14" },
     { name = "netifaces", specifier = ">=0.11.0" },
@@ -1584,8 +1584,8 @@ requires-dist = [
     { name = "python-dotenv" },
     { name = "pytz", specifier = ">=2024.1" },
     { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "rpi-lgpio", specifier = ">=0.6" },
-    { name = "rpi-ws281x", specifier = ">=5.0.0" },
+    { name = "rpi-lgpio", marker = "sys_platform == 'linux'", specifier = ">=0.6" },
+    { name = "rpi-ws281x", marker = "sys_platform == 'linux'", specifier = ">=5.0.0" },
     { name = "rpi-ws281x", marker = "extra == 'hardware'" },
     { name = "scipy", specifier = ">=1.17.0" },
     { name = "sounddevice", specifier = ">=0.5.2" },
@@ -2770,8 +2770,8 @@ name = "pyftdi"
 version = "0.57.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyserial" },
-    { name = "pyusb" },
+    { name = "pyserial", marker = "sys_platform == 'linux'" },
+    { name = "pyusb", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/16/cd/0731490946e037e954ef83719f07c7672cf32bc90dd9c75201c40b827664/pyftdi-0.57.1-py3-none-any.whl", hash = "sha256:efd3f5a7d43202dc883ff261a7b1cb4dcbbe65b19628f8603a8b1183a7bc2841", size = 146180, upload-time = "2025-08-14T15:59:16.164Z" },
@@ -3122,7 +3122,7 @@ name = "rpi-lgpio"
 version = "0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "lgpio" },
+    { name = "lgpio", marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6e/6d/7b6cb0def16abda6af89d16a3363d4036501bf042f9c67668aad3b34927f/rpi_lgpio-0.6.tar.gz", hash = "sha256:84579b11d543bb8abdddc1e10fcd6bdc2819e5897be72d6949a2b044d71fb73e", size = 12723, upload-time = "2024-05-11T16:09:29.463Z" }
 wheels = [
