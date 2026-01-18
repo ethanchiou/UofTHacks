@@ -230,7 +230,7 @@ class VisionService:
 
             if self.solveThisFrame:
                 print(f"Solving math problem..."*20)
-                result = self.math_helper.solve(frame).answer
+                result = self.math_helper.solve(frame).response_text
                 self.solveThisFrame = False
                 print(f"Math problem solved: {result}")
 
