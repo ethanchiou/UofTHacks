@@ -10,7 +10,7 @@ When the user says "help" (or variations), this service:
 Usage:
     from lelamp.service.vision.math_helper_service import MathHelperService
     
-    math_helper = MathHelperService(api_key="your-openai-api-key")
+    math_helper = MathHelperService()
     math_helper.start()
     
     # When "help" is detected in transcript:
@@ -47,15 +47,8 @@ except ImportError as e:
     logger.error(f"OpenAI not installed: {e}")
     logger.error("Run: pip install openai")
 
-# Try to import PIL
-PIL_AVAILABLE = False
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-    logger.info("PIL imported successfully")
-except ImportError as e:
-    logger.error(f"PIL not installed: {e}")
-    logger.error("Run: pip install Pillow")
+# PIL is optional for OpenAI (we use base64 encoding directly)
+PIL_AVAILABLE = True  # Not strictly needed for OpenAI approach
 
 
 @dataclass
@@ -71,14 +64,14 @@ class MathResult:
 
 class MathHelperService:
     """
-    Service that loads test.jpg and solves math problems using OpenAI Vision API.
+    Service that solves math problems using OpenAI GPT-4 Vision API.
     
     Listens for "help" keyword variations in transcripts and automatically processes 
-    the math problem from test.jpg file.
+    the math problem from the camera frame or test.jpg file.
     """
     
-    # Default OpenAI API key (set via environment variable OPENAI_API_KEY or pass directly)
-    DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "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")
+    # OpenAI API key (read from environment variable OPENAI_API_KEY)
+    DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     
     # Path to test image (relative to UofTHacks directory)
     TEST_IMAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "test.jpg")
@@ -159,7 +152,7 @@ class MathHelperService:
         Initialize the Math Helper Service.
         
         Args:
-            api_key: OpenAI API key (uses OPENAI_API_KEY env var if not provided)
+            api_key: OpenAI API key (uses default if not provided)
             trigger_phrases: List of phrases that trigger math help
             default_answer: Default answer if processing fails (default: 4)
             cooldown_seconds: Minimum time between triggers (default: 2.0)
@@ -187,88 +180,6 @@ class MathHelperService:
         # Initialize OpenAI client
         self.client = None
         self._init_openai()
-
-    def solve(self, frame: np.ndarray) -> MathResult:
-        """
-        Solve the math problem in the frame (synchronous version).
-        
-        Args:
-            frame: OpenCV frame (numpy array) containing the math problem
-            
-        Returns:
-            MathResult with the answer
-        """
-        if not OPENAI_AVAILABLE or self.client is None:
-            self.last_error = "OpenAI not available"
-            return MathResult(
-                answer=self.default_answer, problem_text="", explanation="OpenAI not available",
-                confidence=0.0, timestamp=time.time(), raw_response=""
-            )
-        
-        try:
-            # Convert frame to base64
-            _, buffer = cv2.imencode('.jpg', frame)
-            base64_image = base64.b64encode(buffer).decode('utf-8')
-            
-            # Create the prompt
-            prompt = """Look at this image. Find and solve the math problem shown.
-IMPORTANT: Return ONLY the numerical answer as a single integer.
-If you see "2 + 2 = ?", respond with just: 4
-Look at the image and give me ONLY the integer answer:"""
-
-            # Call OpenAI API (synchronous)
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=100
-            )
-            
-            if response is None or not response.choices:
-                self.last_error = "OpenAI returned empty response"
-                return MathResult(
-                    answer=self.default_answer, problem_text="", explanation="No response",
-                    confidence=0.0, timestamp=time.time(), raw_response=""
-                )
-            
-            # Get response text
-            response_text = response.choices[0].message.content.strip()
-            
-            # Extract integer from response
-            answer = self._extract_integer(response_text)
-            
-            result = MathResult(
-                answer=answer,
-                problem_text=response_text,
-                explanation=response_text,
-                confidence=0.9 if answer != self.default_answer else 0.5,
-                timestamp=time.time(),
-                raw_response=response_text
-            )
-            
-            self.latest_result = result
-            self.last_error = None
-            return result
-            
-        except Exception as e:
-            logger.error(f"OpenAI error: {e}")
-            self.last_error = str(e)
-            return MathResult(
-                answer=self.default_answer, problem_text="", explanation=str(e),
-                confidence=0.0, timestamp=time.time(), raw_response=""
-            )
     
     def _init_openai(self):
         """Initialize the OpenAI API client."""
@@ -279,12 +190,8 @@ Look at the image and give me ONLY the integer answer:"""
             logger.error("=" * 50)
             return
         
-        if not self.api_key:
-            logger.error("No OpenAI API key provided. Set OPENAI_API_KEY environment variable.")
-            return
-        
         try:
-            logger.info(f"Configuring OpenAI with API key: {self.api_key[:10]}...{self.api_key[-4:]}")
+            logger.info(f"Configuring OpenAI with API key: {self.api_key[:15]}...{self.api_key[-4:]}")
             self.client = OpenAI(api_key=self.api_key)
             logger.info("OpenAI client initialized (using gpt-4o-mini for vision)")
             
@@ -389,12 +296,12 @@ Look at the image and give me ONLY the integer answer:"""
         logger.debug(f"Frame encoded to base64: {len(b64)} characters")
         return b64
     
-    async def analyze_math_problem(self, frame: np.ndarray) -> MathResult:
+    def solve(self, frame: np.ndarray) -> MathResult:
         """
-        Send frame to OpenAI API and extract math problem answer (async version).
+        Solve the math problem in the frame using OpenAI GPT-4 Vision (synchronous).
         
         Args:
-            frame: The camera frame containing the math problem
+            frame: OpenCV frame (numpy array) containing the math problem
             
         Returns:
             MathResult with the answer
@@ -407,19 +314,20 @@ Look at the image and give me ONLY the integer answer:"""
             )
         
         try:
-            # Convert frame to base64
-            _, buffer = cv2.imencode('.jpg', frame)
+            # Convert frame to base64 JPEG
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
             base64_image = base64.b64encode(buffer).decode('utf-8')
             
-            # Create the prompt
-            prompt = """Look at this image. Find and solve the math problem shown.
-IMPORTANT: Return ONLY the numerical answer as a single integer.
-If you see "2 + 2 = ?", respond with just: 4
-Look at the image and give me ONLY the integer answer:"""
+            logger.info(f"Sending image to OpenAI (size: {len(base64_image)} chars)")
+            
+            # Create the prompt - be very explicit
+            prompt = """Look at this image carefully. There are two numbers shown.
+Add these two numbers together and tell me the sum.
+IMPORTANT: Return ONLY the numerical answer as a single integer, nothing else.
+For example, if you see 5 and 3, respond with just: 8"""
 
-            # Call OpenAI API (async via thread)
-            response = await asyncio.to_thread(
-                self.client.chat.completions.create,
+            # Call OpenAI API (synchronous)
+            response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -429,13 +337,14 @@ Look at the image and give me ONLY the integer answer:"""
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "detail": "high"
                                 }
                             }
                         ]
                     }
                 ],
-                max_tokens=100
+                max_tokens=50
             )
             
             if response is None or not response.choices:
@@ -447,9 +356,11 @@ Look at the image and give me ONLY the integer answer:"""
             
             # Get response text
             response_text = response.choices[0].message.content.strip()
+            logger.info(f"OpenAI response: '{response_text}'")
             
             # Extract integer from response
             answer = self._extract_integer(response_text)
+            logger.info(f"Extracted answer: {answer}")
             
             result = MathResult(
                 answer=answer,
@@ -466,11 +377,25 @@ Look at the image and give me ONLY the integer answer:"""
             
         except Exception as e:
             logger.error(f"OpenAI error: {e}")
+            logger.error(traceback.format_exc())
             self.last_error = str(e)
             return MathResult(
                 answer=self.default_answer, problem_text="", explanation=str(e),
                 confidence=0.0, timestamp=time.time(), raw_response=""
             )
+    
+    async def analyze_math_problem(self, frame: np.ndarray) -> MathResult:
+        """
+        Send frame to OpenAI API and extract math problem answer (async version).
+        
+        Args:
+            frame: The camera frame containing the math problem
+            
+        Returns:
+            MathResult with the answer
+        """
+        # Use the synchronous solve method in a thread
+        return await asyncio.to_thread(self.solve, frame)
     
     def _extract_integer(self, text: str) -> int:
         """Extract an integer from text response."""
@@ -720,14 +645,9 @@ async def run_full_test():
     # Test 1: Check dependencies
     print("\n[TEST 1] Checking dependencies...")
     print(f"  - openai: {'✓ INSTALLED' if OPENAI_AVAILABLE else '✗ NOT INSTALLED'}")
-    print(f"  - PIL/Pillow: {'✓ INSTALLED' if PIL_AVAILABLE else '✗ NOT INSTALLED'}")
     
     if not OPENAI_AVAILABLE:
         print("\n  ❌ ERROR: Install openai with: pip install openai")
-        return
-    
-    if not PIL_AVAILABLE:
-        print("\n  ❌ ERROR: Install Pillow with: pip install Pillow")
         return
     
     print("  ✓ PASS: All dependencies installed")
