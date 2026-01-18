@@ -229,10 +229,15 @@ class VisionService:
                 continue
 
             if self.solveThisFrame:
-                print(f"Solving math problem..."*20)
+                print("\n" + "="*50)
+                print("[Math Helper] Processing math problem...")
+                print("="*50)
                 math_result = self.math_helper.solve(frame)
                 self.solveThisFrame = False
-                print(f"Math problem solved: {math_result.answer} (raw: {math_result.raw_response})")
+                print("="*50)
+                print(f"[ANSWER]: {math_result.answer}")
+                print(f"[Explanation]: {math_result.explanation}")
+                print("="*50 + "\n")
 
             face_data = None
             hand_data = None
