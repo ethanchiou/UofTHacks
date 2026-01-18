@@ -70,7 +70,7 @@ class MathHelperService:
     the math problem from the camera frame or test.jpg file.
     """
     
-    # OpenAI API key (read from environment variable OPENAI_API_KEY)
+    # OpenAI API key (set OPENAI_API_KEY environment variable)
     DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     
     # Path to test image (relative to UofTHacks directory)
@@ -298,43 +298,100 @@ class MathHelperService:
     
     def solve(self, frame: np.ndarray) -> MathResult:
         """
-        Solve the math problem - HARDCODED VERSION for demo.
-        Returns answer 7 with simulated AI response text.
+        Solve the math problem in the frame (synchronous version).
         
         Args:
-            frame: OpenCV frame (ignored in hardcoded version)
+            frame: OpenCV frame (numpy array) containing the math problem
             
         Returns:
-            MathResult with hardcoded answer of 7
+            MathResult with the answer
         """
-        # Hardcoded response - no API call needed
-        print("[Math Helper] Analyzing image...")
-        time.sleep(0.5)  # Simulate processing time
+        if not OPENAI_AVAILABLE or self.client is None:
+            self.last_error = "OpenAI not available"
+            return MathResult(
+                answer=self.default_answer, problem_text="", explanation="OpenAI not available",
+                confidence=0.0, timestamp=time.time(), raw_response=""
+            )
         
-        print("[Math Helper] Detected numbers in image...")
-        time.sleep(0.3)
-        
-        print("[Math Helper] Calculating sum...")
-        time.sleep(0.3)
-        
-        # Hardcoded answer
-        answer = 7
-        response_text = "The answer is 7"
-        
-        print(f"[Math Helper] Answer: {answer}")
-        
-        result = MathResult(
-            answer=answer,
-            problem_text="3 + 4 = ?",
-            explanation="I see 3 and 4 in the image. 3 + 4 = 7",
-            confidence=1.0,
-            timestamp=time.time(),
-            raw_response=response_text
-        )
-        
-        self.latest_result = result
-        self.last_error = None
-        return result
+        try:
+            # Convert frame to base64 JPEG
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            base64_image = base64.b64encode(buffer).decode('utf-8')
+            
+            logger.info(f"Sending image to OpenAI (size: {len(base64_image)} chars)")
+            
+            # Create the prompt - handle any math equation with thinking process
+            prompt = """Look at this image carefully. Find any math equation or problem shown.
+
+Please respond in this format:
+PROBLEM: [Write out the math problem you see]
+THINKING: [Show your step-by-step thinking process to solve it]
+ANSWER: [The final numerical answer]
+
+For example:
+PROBLEM: 15 + 27
+THINKING: I need to add 15 and 27. 15 + 27 = 42
+ANSWER: 42
+
+Now analyze the image and solve the math problem:"""
+
+            # Call OpenAI API (synchronous)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "detail": "high"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=300
+            )
+            
+            if response is None or not response.choices:
+                self.last_error = "OpenAI returned empty response"
+                return MathResult(
+                    answer=self.default_answer, problem_text="", explanation="No response",
+                    confidence=0.0, timestamp=time.time(), raw_response=""
+                )
+            
+            # Get response text
+            response_text = response.choices[0].message.content.strip()
+            logger.info(f"OpenAI response: '{response_text}'")
+            
+            # Extract integer from response
+            answer = self._extract_integer(response_text)
+            logger.info(f"Extracted answer: {answer}")
+            
+            result = MathResult(
+                answer=answer,
+                problem_text=response_text,
+                explanation=response_text,
+                confidence=0.9 if answer != self.default_answer else 0.5,
+                timestamp=time.time(),
+                raw_response=response_text
+            )
+            
+            self.latest_result = result
+            self.last_error = None
+            return result
+            
+        except Exception as e:
+            logger.error(f"OpenAI error: {e}")
+            logger.error(traceback.format_exc())
+            self.last_error = str(e)
+            return MathResult(
+                answer=self.default_answer, problem_text="", explanation=str(e),
+                confidence=0.0, timestamp=time.time(), raw_response=""
+            )
     
     async def analyze_math_problem(self, frame: np.ndarray) -> MathResult:
         """
