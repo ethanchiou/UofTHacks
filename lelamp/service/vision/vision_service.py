@@ -191,6 +191,35 @@ class VisionService:
         """Set callback for hand tracking data"""
         self._hand_callback = callback
 
+    def _speak_answer(self, answer: int):
+        """
+        Speak the math answer aloud using TTS.
+        Uses espeak on Raspberry Pi or 'say' on macOS.
+        """
+        import subprocess
+        
+        text = f"The answer is {answer}"
+        print(f"[SPEAKING]: {text}")
+        
+        # Try espeak first (Linux/Raspberry Pi)
+        try:
+            result = subprocess.run(['espeak', text], capture_output=True, timeout=10)
+            if result.returncode == 0:
+                return
+        except Exception:
+            pass
+        
+        # Try macOS say command
+        try:
+            result = subprocess.run(['say', text], capture_output=True, timeout=10)
+            if result.returncode == 0:
+                return
+        except Exception:
+            pass
+        
+        # Fallback: just print (TTS not available)
+        print(f"[TTS NOT AVAILABLE] Would say: {text}")
+
     def _camera_loop(self):
         """Main camera capture and processing loop"""
         # 1. Open Camera
@@ -240,6 +269,9 @@ class VisionService:
                 print("-"*60)
                 print(f"\n[EXTRACTED ANSWER]: {math_result.answer}")
                 print("="*60 + "\n")
+                
+                # Speak the answer aloud
+                self._speak_answer(math_result.answer)
 
             face_data = None
             hand_data = None
