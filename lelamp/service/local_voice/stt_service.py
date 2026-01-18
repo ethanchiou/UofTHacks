@@ -64,6 +64,7 @@ class LocalSTTService:
         silence_threshold: float = None,
         silence_duration: float = None,
         min_audio_length: float = None,
+        on_transcription: callable = None,
     ):
         self.model_size = model_size
         self.compute_type = compute_type
@@ -73,6 +74,9 @@ class LocalSTTService:
         self.silence_threshold = silence_threshold or self.SILENCE_THRESHOLD
         self.silence_duration = silence_duration or self.SILENCE_DURATION
         self.min_audio_length = min_audio_length or self.MIN_AUDIO_LENGTH
+
+        # Callback for when transcription completes (e.g., for joke detection)
+        self._on_transcription = on_transcription
 
         # State for VAD
         self.audio_buffer: List[float] = []
@@ -216,6 +220,14 @@ class LocalSTTService:
 
                     if text:
                         logger.info(f"Transcribed: {text}")
+                        
+                        # Invoke callback (e.g., for joke detection)
+                        if self._on_transcription:
+                            try:
+                                self._on_transcription(text)
+                            except Exception as e:
+                                logger.error(f"Transcription callback error: {e}")
+                        
                         return (text, stt_time, audio_duration)
 
         return None
@@ -226,6 +238,17 @@ class LocalSTTService:
         self.silence_start = None
         self.is_speaking = False
         self.speech_start_time = None
+
+    def set_transcription_callback(self, callback: callable):
+        """
+        Set callback for when transcription completes.
+        
+        Args:
+            callback: Function that takes (text: str) as argument.
+                     Can be sync or async - if async, it will be scheduled.
+        """
+        self._on_transcription = callback
+        logger.info("Transcription callback registered")
 
     def transcribe_buffer(self, audio_data: np.ndarray) -> Tuple[str, float]:
         """

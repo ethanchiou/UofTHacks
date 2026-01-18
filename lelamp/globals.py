@@ -31,6 +31,7 @@ wake_service = None
 workflow_service = None
 audio_service = None
 microphone_service = None  # Microphone input processing with VAD/AEC
+stt_service = None  # Local STT (Faster Whisper) for speech-to-text
 audio_router = None  # Routes processed audio through loopback to LiveKit
 theme_service = None
 spotify_service = None  # Spotify integration
@@ -245,3 +246,88 @@ def auto_detect_hardware() -> dict:
         "camera_detected": camera_audio and camera_video,
         "updated_config": updated,
     }
+
+
+# =============================================================================
+# Joke Detection Integration
+# =============================================================================
+
+def init_joke_detection():
+    """
+    Initialize joke detection services and wire up to local STT.
+    
+    This connects:
+    - GeminiService (joke detection AI)
+    - BackboardService (persistent memory)
+    - JokeHandler (orchestrates responses)
+    - LocalSTTService callback (triggers on transcription)
+    
+    Returns:
+        True if successfully initialized, False otherwise
+    """
+    global gemini_service, backboard_service, joke_handler, stt_service
+    import os
+    import asyncio
+    
+    print("[Joke Detection] Initializing...")
+    
+    # Check for required API keys
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    backboard_key = os.getenv("BACKBOARD_API_KEY")
+    
+    if not gemini_key:
+        print("[Joke Detection] GEMINI_API_KEY not set - skipping")
+        return False
+    
+    try:
+        # Initialize Gemini
+        from lelamp.service.gemini import GeminiService
+        gemini_service = GeminiService(api_key=gemini_key)
+        print("[Joke Detection] GeminiService initialized")
+        
+        # Initialize Backboard (optional)
+        if backboard_key:
+            from lelamp.service.memory import BackboardService
+            backboard_service = BackboardService(api_key=backboard_key)
+            print("[Joke Detection] BackboardService initialized")
+        else:
+            print("[Joke Detection] No BACKBOARD_API_KEY - memory disabled")
+        
+        # Initialize JokeHandler
+        from lelamp.service.joke_handler import JokeHandler
+        joke_handler = JokeHandler(
+            gemini_service=gemini_service,
+            backboard_service=backboard_service,
+            animation_service=animation_service,
+            audio_service=audio_service,
+            rgb_service=rgb_service,
+            min_humor_level=5
+        )
+        print("[Joke Detection] JokeHandler initialized")
+        
+        # Wire up to local STT if available
+        if stt_service:
+            def on_transcription(text: str):
+                """Callback when STT produces transcription."""
+                if joke_handler and text:
+                    # Run async joke check in background
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(joke_handler.process_text(text))
+                        else:
+                            asyncio.run(joke_handler.process_text(text))
+                    except Exception as e:
+                        print(f"[Joke Detection] Error: {e}")
+            
+            stt_service.set_transcription_callback(on_transcription)
+            print("[Joke Detection] Wired to LocalSTTService")
+        else:
+            print("[Joke Detection] No STT service - run manually or use agent_service")
+        
+        print("[Joke Detection] Ready!")
+        return True
+        
+    except Exception as e:
+        print(f"[Joke Detection] Initialization failed: {e}")
+        return False
