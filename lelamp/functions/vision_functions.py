@@ -154,3 +154,13 @@ class VisionFunctions:
         except Exception as e:
             logging.error(f"Error in get_scene_details: {e}")
             return f"Error getting scene details: {str(e)}"
+
+    @Tool.register_tool
+    def solve_this_frame(self) -> str:
+        """
+        Solve the math problem in the current frame.
+        Use this when you see or the user asks you to solve a math problem in the frame.
+        """
+        print(f"Solving math problem called...")
+        self.vision_service.solve_this_frame = True
+        return "Math problem solved"

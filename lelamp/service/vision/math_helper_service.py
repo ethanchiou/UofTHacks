@@ -78,7 +78,7 @@ class MathHelperService:
     """
     
     # Default Gemini API key
-    DEFAULT_API_KEY = "AIzaSyBMwyjT3LjEPrWgdwXzmu3P8GSssEhF5Bo"
+    DEFAULT_API_KEY = "AIzaSyBCTkIxNDvXV-V1CPjPai0kxXNTTOlmImE"
     
     # Path to test image (relative to UofTHacks directory)
     TEST_IMAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "test.jpg")

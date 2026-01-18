@@ -16,9 +16,6 @@ from dotenv import load_dotenv
 from groq import Groq
 from lelamp.service.agent.tools import Tool
 
-# Import MathHelperService for math problem detection
-from lelamp.service.vision.math_helper_service import MathHelperService, get_math_helper
-
 logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger("Agent_Service")
 
@@ -75,6 +72,7 @@ class Agent(
         self.theme_service = g.theme_service
         self.workflow_service = g.workflow_service
         self.spotify_service = g.spotify_service
+        self.vision_service = g.vision_service
 
         # Check if motors are available
         self.motors_enabled = self.animation_service is not None
@@ -163,11 +161,6 @@ class LLM:
         self.output_queue = queue.Queue()
 
         self.agent = Agent()
-        
-        # Initialize Math Helper Service for "help" keyword detection
-        self.math_helper = MathHelperService()
-        self.math_helper.start()
-        logger.info("MathHelperService initialized for 'help' keyword detection")
 
     def _fix_tools_format(self, original_tools):
         """Convert Chat Completion format tools to Realtime API format"""
@@ -203,20 +196,6 @@ class LLM:
         except Exception as e:
             pass
 
-    async def _handle_math_help(self):
-        """
-        Handle math help request when 'help' is detected in transcript.
-        Captures camera frame, sends to Gemini, and speaks the answer.
-        """
-        try:
-            logger.info("Processing math help request...")
-            answer = await self.math_helper.process_math_help()
-            logger.info(f"Math help completed. Answer: {answer}")
-        except Exception as e:
-            logger.error(f"Error processing math help: {e}")
-            # Still try to speak default answer
-            print(f"\n*** MATH ANSWER: {self.math_helper.default_answer} (error occurred) ***\n")
-
     async def send_audio(self, websocket):
         """Continuously read data from microphone queue and send to OpenAI"""
         while True:
@@ -248,12 +227,6 @@ class LLM:
                     if current_stream_type: print("") # Newline
                     print(f"[User Voice Transcription]: {transcript}")
                     current_stream_type = None
-                    
-                    # Check for "help" keyword to trigger math problem solving
-                    if self.math_helper.check_transcript(transcript):
-                        logger.info(">>> HELP detected! Processing math problem...")
-                        # Run math helper asynchronously
-                        asyncio.create_task(self._handle_math_help())
 
             # --- 2. AI Text Streaming Output (AI Response) ---
             # Because modalities=["text"], we listen to response.text.delta instead of audio
@@ -320,7 +293,7 @@ class LLM:
                     "turn_detection": {
                         "type": "server_vad",  # Enable server-side voice activity detection (auto interruption, auto reply)
                     },
-                    "tools": self._fix_tools_format(Tool.tools_schema),
+                    "tools": self.[f for f in _fix_tools_format(Tool.tools_schema) if f['name'] == 'solve_this_frame'],
                     "tool_choice": "auto",
                     "input_audio_transcription": {
                         "model": "whisper-1",
@@ -328,6 +301,7 @@ class LLM:
                     "instructions": system_prompt.strip()
                 }
             }
+            print(f"Session update: {session_update}")
             await websocket.send(json.dumps(session_update))
 
             input_stream = sd.InputStream(

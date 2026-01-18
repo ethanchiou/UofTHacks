@@ -12,6 +12,7 @@ import logging
 import numpy as np
 from typing import Optional, Dict, Callable, Union, List
 from dataclasses import dataclass
+from lelamp.service.vision.math_helper_service import MathHelperService
 
 # --- Attempt to import MediaPipe ---
 try:
@@ -145,6 +146,10 @@ class VisionService:
         self._face_detected_once = False
         self._last_face_detected = False
 
+        self.math_helper = MathHelperService()
+        self.solveThisFrame = False
+        self.math_helper.start()
+
     def start(self):
         """Start vision service"""
         if self._running:
@@ -223,8 +228,11 @@ class VisionService:
                 time.sleep(0.1)
                 continue
 
-            # 3. Publish Image to LiveKit (if enabled)
-            self._publish_image_frame(frame)
+            if self.solveThisFrame:
+                print(f"Solving math problem...")
+                result = self.math_helper.analyze_math_problem(frame).answer
+                self.solveThisFrame = False
+                print(f"Math problem solved: {result}")
 
             face_data = None
             hand_data = None
