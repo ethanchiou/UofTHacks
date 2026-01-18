@@ -42,6 +42,11 @@ datacollection_service = None  # Telemetry data collection service
 lelamp_agent = None  # Main agent instance
 livekit_service = None  # LiveKit Cloud connection manager
 
+# Joke detection and memory services
+gemini_service = None  # Gemini AI for joke detection
+backboard_service = None  # Backboard.io memory service
+joke_handler = None  # Joke detection + response orchestrator
+
 # Global scene context (for quick access)
 current_scene_context = None
 

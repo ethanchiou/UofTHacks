@@ -110,6 +110,9 @@ def init_hardware_services():
     # Workflow Service - for automation workflows
     _init_workflow_service(config)
 
+    # Joke Handler - Gemini + Backboard for joke detection and memory
+    _init_joke_handler(config)
+
     # g.vision_service.set_hand_callback(g.animation_service.hand_control_callback)
 
     # Set system volumes
@@ -282,6 +285,70 @@ def _init_workflow_service(config: dict):
     except Exception as e:
         logger.warning(f"Workflow service failed: {e}")
         g.workflow_service = None
+
+
+def _init_joke_handler(config: dict):
+    """Initialize Gemini + Backboard joke detection and memory services."""
+    
+    # Initialize Gemini service for joke detection
+    gemini_config = config.get("gemini", {})
+    if gemini_config.get("enabled", False) and gemini_config.get("api_key"):
+        try:
+            from lelamp.service.gemini import GeminiService
+            g.gemini_service = GeminiService(
+                api_key=gemini_config["api_key"],
+                model=gemini_config.get("model", "gemini-1.5-flash")
+            )
+            g.gemini_service.set_cooldown(gemini_config.get("cooldown_seconds", 5))
+            logger.info("Gemini service initialized for joke detection")
+        except ImportError:
+            logger.warning("Gemini service not available (install google-generativeai)")
+            g.gemini_service = None
+        except Exception as e:
+            logger.error(f"Gemini service failed: {e}")
+            g.gemini_service = None
+    else:
+        logger.info("Gemini service disabled or no API key")
+        g.gemini_service = None
+    
+    # Initialize Backboard service for memory
+    backboard_config = config.get("backboard", {})
+    if backboard_config.get("enabled", False) and backboard_config.get("api_key"):
+        try:
+            from lelamp.service.memory import BackboardService
+            g.backboard_service = BackboardService(api_key=backboard_config["api_key"])
+            # Note: async initialization happens later when event loop is available
+            logger.info("Backboard service created (will initialize async)")
+        except ImportError:
+            logger.warning("Backboard service not available (install backboard-sdk)")
+            g.backboard_service = None
+        except Exception as e:
+            logger.error(f"Backboard service failed: {e}")
+            g.backboard_service = None
+    else:
+        logger.info("Backboard service disabled or no API key")
+        g.backboard_service = None
+    
+    # Initialize JokeHandler if Gemini is available
+    joke_config = config.get("joke_detection", {})
+    if joke_config.get("enabled", True) and g.gemini_service:
+        try:
+            from lelamp.service.joke_handler import JokeHandler
+            g.joke_handler = JokeHandler(
+                gemini_service=g.gemini_service,
+                backboard_service=g.backboard_service,
+                animation_service=g.animation_service,
+                audio_service=g.audio_service,
+                rgb_service=g.rgb_service,
+                min_humor_level=joke_config.get("min_humor_level", 5)
+            )
+            logger.info("JokeHandler initialized")
+        except Exception as e:
+            logger.error(f"JokeHandler failed: {e}")
+            g.joke_handler = None
+    else:
+        logger.info("JokeHandler disabled (requires Gemini)")
+        g.joke_handler = None
 
 def _set_system_volumes(config: dict):
     """Set system audio volumes from config."""

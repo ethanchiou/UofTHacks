@@ -26,6 +26,24 @@ auth:
   clerk_publishable_key: pk_test_ZXhhY3QtcGVnYXN1cy00Ni5jbGVyay5hY2NvdW50cy5kZXYk
 agent:
   enabled: false
+
+# Gemini AI for joke detection
+gemini:
+  enabled: true
+  api_key: "AIzaSyDSS2cZTRVJKXPBlG8TVl5XH1Ez5d0Umlw"
+  model: "gemini-1.5-flash"
+  cooldown_seconds: 5
+
+# Backboard.io for persistent memory
+backboard:
+  enabled: false  # Set to true and add API key to enable
+  api_key: ""  # Get from backboard.io dashboard
+  assistant_id: null  # Will be auto-populated on first run
+
+# Joke detection settings
+joke_detection:
+  enabled: true
+  min_humor_level: 5  # Only react to jokes rated 5+ out of 10
 pipeline:
   type: livekit
   local:
