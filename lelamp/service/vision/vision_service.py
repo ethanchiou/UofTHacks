@@ -51,6 +51,19 @@ class HandData:
     landmarks: List[tuple] = None  # List of (x, y) normalized
 
 
+@dataclass
+class PaperData:
+    """Paper/document tracking data"""
+    detected: bool
+    position: tuple       # (x, y) center normalized -1.0 to 1.0
+    size: float           # 0.0 to 1.0, area ratio
+    corners: List[tuple]  # List of 4 corner points [(x,y), ...] in pixels
+    angle: float          # Rotation angle in degrees
+    aspect_ratio: float   # Width/height ratio
+    timestamp: float
+    contour: np.ndarray = None  # Raw contour points for drawing
+
+
 class VisionService:
     """
     Unified Vision Service
@@ -145,6 +158,18 @@ class VisionService:
         self._face_detected_once = False
         self._last_face_detected = False
 
+        # --- Paper Tracking State ---
+        self.latest_paper_data: Optional[PaperData] = None
+        self._paper_lock = threading.Lock()
+        self._paper_tracking_enabled = False
+        self._paper_tracking_callback: Optional[Callable[[float, float, bool], None]] = None
+        self._paper_callback: Optional[Callable[[PaperData], None]] = None
+        
+        # Paper detection parameters
+        self._paper_min_area_ratio = 0.02  # Minimum 2% of frame
+        self._paper_max_area_ratio = 0.95  # Maximum 95% of frame
+        self._paper_approx_epsilon = 0.02  # Contour approximation accuracy
+
     def start(self):
         """Start vision service"""
         if self._running:
@@ -228,6 +253,7 @@ class VisionService:
 
             face_data = None
             hand_data = None
+            paper_data = None
 
             # 4. Process Vision (MediaPipe vs Haar)
             if self.use_mediapipe:
@@ -249,6 +275,9 @@ class VisionService:
                 face_data = self._process_haar_faces(faces, frame.shape)
                 # No hand tracking in fallback mode
 
+            # C. Paper Detection (always available, uses OpenCV)
+            paper_data = self._process_paper_detection(frame)
+
             # 5. Update State
             with self._face_lock:
                 self.latest_face_data = face_data
@@ -256,6 +285,9 @@ class VisionService:
             if hand_data:
                 with self._hand_lock:
                     self.latest_hand_data = hand_data
+
+            with self._paper_lock:
+                self.latest_paper_data = paper_data
 
             # 6. "First Face Detected" Sound Logic
             if face_data.detected and not self._last_face_detected:
@@ -280,8 +312,8 @@ class VisionService:
                 except Exception as e:
                     self.logger.error(f"Error in tracking callback: {e}")
 
-            # Motor Direct Tracking
-            if self._motor_tracking_enabled and self._motor_tracking_callback:
+            # Motor Direct Tracking (Face)
+            if self._motor_tracking_enabled and self._motor_tracking_callback and not self._paper_tracking_enabled:
                 try:
                     self._motor_tracking_callback(face_data.position[0], face_data.position[1], face_data.detected)
                 except Exception as e:
@@ -293,6 +325,20 @@ class VisionService:
                     self._hand_callback(hand_data)
                 except Exception as e:
                     self.logger.error(f"Error in hand callback: {e}")
+
+            # Paper Tracking (Motor Control)
+            if self._paper_tracking_enabled and self._paper_tracking_callback:
+                try:
+                    self._paper_tracking_callback(paper_data.position[0], paper_data.position[1], paper_data.detected)
+                except Exception as e:
+                    self.logger.error(f"Error in paper tracking callback: {e}")
+
+            # Paper Data Callback
+            if self._paper_callback and paper_data and paper_data.detected:
+                try:
+                    self._paper_callback(paper_data)
+                except Exception as e:
+                    self.logger.error(f"Error in paper callback: {e}")
 
             # FPS Control
             processing_time = time.time() - start_time
@@ -418,6 +464,163 @@ class VisionService:
             fingers.append(1 if landmarks.landmark[tip].y < landmarks.landmark[pip].y else 0)
 
         return fingers
+
+    # --- Paper Detection Methods ---
+
+    def _process_paper_detection(self, frame) -> PaperData:
+        """
+        Detect paper/document in frame using contour detection.
+        Returns PaperData with center position for tracking.
+        """
+        frame_h, frame_w = frame.shape[:2]
+        frame_area = frame_w * frame_h
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Use adaptive thresholding for better paper detection
+        # This works well for white/light paper on darker backgrounds
+        thresh = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 11, 2
+        )
+        
+        # Also try Canny edge detection as alternative
+        edges = cv2.Canny(blurred, 50, 150)
+        
+        # Dilate edges to close gaps
+        kernel = np.ones((3, 3), np.uint8)
+        edges_dilated = cv2.dilate(edges, kernel, iterations=2)
+        
+        # Find contours in edge image
+        contours, _ = cv2.findContours(
+            edges_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        
+        if not contours:
+            return PaperData(
+                detected=False,
+                position=(0.0, 0.0),
+                size=0.0,
+                corners=[],
+                angle=0.0,
+                aspect_ratio=0.0,
+                timestamp=time.time()
+            )
+        
+        # Find the best rectangular contour
+        best_contour = None
+        best_area = 0
+        best_approx = None
+        
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            area_ratio = area / frame_area
+            
+            # Filter by area
+            if area_ratio < self._paper_min_area_ratio or area_ratio > self._paper_max_area_ratio:
+                continue
+            
+            # Approximate contour to polygon
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, self._paper_approx_epsilon * peri, True)
+            
+            # Look for quadrilateral (4 corners) - paper shape
+            if len(approx) == 4:
+                # Check if it's convex (paper should be convex)
+                if cv2.isContourConvex(approx):
+                    if area > best_area:
+                        best_area = area
+                        best_contour = contour
+                        best_approx = approx
+        
+        # If no 4-corner shape found, try to find largest rectangle-like contour
+        if best_contour is None:
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                area_ratio = area / frame_area
+                
+                if area_ratio < self._paper_min_area_ratio:
+                    continue
+                
+                # Get minimum area rectangle
+                rect = cv2.minAreaRect(contour)
+                box = cv2.boxPoints(rect)
+                box = np.int32(box)
+                
+                # Check if contour fills most of the bounding rect (rectangular shape)
+                rect_area = rect[1][0] * rect[1][1]
+                if rect_area > 0 and area / rect_area > 0.7:  # At least 70% fill
+                    if area > best_area:
+                        best_area = area
+                        best_contour = contour
+                        best_approx = box
+        
+        if best_contour is None:
+            return PaperData(
+                detected=False,
+                position=(0.0, 0.0),
+                size=0.0,
+                corners=[],
+                angle=0.0,
+                aspect_ratio=0.0,
+                timestamp=time.time()
+            )
+        
+        # Calculate center using moments
+        M = cv2.moments(best_contour)
+        if M["m00"] == 0:
+            return PaperData(
+                detected=False,
+                position=(0.0, 0.0),
+                size=0.0,
+                corners=[],
+                angle=0.0,
+                aspect_ratio=0.0,
+                timestamp=time.time()
+            )
+        
+        center_x = int(M["m10"] / M["m00"])
+        center_y = int(M["m01"] / M["m00"])
+        
+        # Normalize position to -1.0 to 1.0
+        pos_x = (center_x - frame_w / 2) / (frame_w / 2)
+        pos_y = (center_y - frame_h / 2) / (frame_h / 2)
+        
+        # Get corners
+        if best_approx is not None:
+            corners = [(int(pt[0][0]), int(pt[0][1])) if len(pt.shape) > 1 else (int(pt[0]), int(pt[1])) 
+                      for pt in best_approx]
+        else:
+            corners = []
+        
+        # Calculate rotation angle and aspect ratio from min area rect
+        rect = cv2.minAreaRect(best_contour)
+        angle = rect[2]
+        width, height = rect[1]
+        
+        # Normalize angle to -45 to 45 degrees
+        if width < height:
+            angle = angle - 90
+        
+        aspect_ratio = max(width, height) / max(min(width, height), 1)
+        
+        # Size as area ratio
+        size = best_area / frame_area
+        
+        return PaperData(
+            detected=True,
+            position=(pos_x, pos_y),
+            size=size,
+            corners=corners,
+            angle=angle,
+            aspect_ratio=aspect_ratio,
+            timestamp=time.time(),
+            contour=best_contour
+        )
 
     def _calculate_head_pose(self, landmarks, frame_w, frame_h) -> dict:
         """Calculate Pitch, Yaw, Roll using PnP"""
@@ -584,3 +787,58 @@ class VisionService:
     def is_tracking_enabled(self) -> bool:
         with self._tracking_lock:
             return self._tracking_mode
+
+    # --- Paper Tracking Methods ---
+
+    def get_paper_data(self) -> Optional[PaperData]:
+        """Get the latest paper detection data"""
+        with self._paper_lock:
+            return self.latest_paper_data
+
+    def set_paper_callback(self, callback: Callable[['PaperData'], None]):
+        """Set callback for paper detection data"""
+        self._paper_callback = callback
+        self.logger.info("Paper callback registered")
+
+    def enable_paper_tracking(self, callback: Callable[[float, float, bool], None]):
+        """
+        Enable paper tracking for motor control.
+        Callback receives (x, y, detected) where x,y are normalized -1.0 to 1.0.
+        When enabled, this takes priority over face motor tracking.
+        """
+        self._paper_tracking_callback = callback
+        self._paper_tracking_enabled = True
+        self.logger.info("Paper tracking ENABLED - motor will follow paper center")
+
+    def disable_paper_tracking(self):
+        """Disable paper tracking"""
+        self._paper_tracking_enabled = False
+        self._paper_tracking_callback = None
+        self.logger.info("Paper tracking DISABLED")
+
+    def is_paper_tracking_enabled(self) -> bool:
+        """Check if paper tracking is enabled"""
+        return self._paper_tracking_enabled
+
+    def set_paper_detection_params(
+        self, 
+        min_area_ratio: float = None,
+        max_area_ratio: float = None,
+        approx_epsilon: float = None
+    ):
+        """
+        Configure paper detection parameters.
+        
+        Args:
+            min_area_ratio: Minimum paper area as ratio of frame (default 0.02 = 2%)
+            max_area_ratio: Maximum paper area as ratio of frame (default 0.95 = 95%)
+            approx_epsilon: Contour approximation accuracy (default 0.02)
+        """
+        if min_area_ratio is not None:
+            self._paper_min_area_ratio = min_area_ratio
+        if max_area_ratio is not None:
+            self._paper_max_area_ratio = max_area_ratio
+        if approx_epsilon is not None:
+            self._paper_approx_epsilon = approx_epsilon
+        self.logger.info(f"Paper detection params: min_area={self._paper_min_area_ratio}, "
+                        f"max_area={self._paper_max_area_ratio}, epsilon={self._paper_approx_epsilon}")
